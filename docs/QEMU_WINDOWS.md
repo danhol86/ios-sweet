@@ -114,7 +114,37 @@ to discard guest changes in an old-style snapshot test. Do not use
   inspect its actual compile logs and artifact before using it.
 - 0086: Configurable sampler delays, defaulting to physical Redmi timings.
   Launcher sets faster QEMU diagnostic boot arguments when this patch is
-  compiled; unverified pending the 0085 macOS build result.
+  compiled. The first build (40937216974) found a missing tsleep argument;
+  fixed macOS 15 build 40938913078 completed successfully. The kernel
+  artifact at xnu/out-qemu-0086/kernel.development.sweet has verified
+  SHA256 f5bb5cc5846d04aec986e0232d88540c875c83331857be5cb0ce004e678fbbf5
+  and matching root/input/sampler symbols. A live 0086 iOS boot is still
+  required before making it the default.
+
+## Most recent iOS startup investigation
+
+The 0085 kernel process sampler repeatedly showed SpringBoard stalled in
+LaunchServices initialization, and lsd stalled in database seeding.
+Symbolication against the **exact iOS 16.7.16 dyld cache** found the
+backtrace from lsd into InstalledContentLibrary's
+_GenerateBuiltInAppInstallSessionID. This function requests MobileGestalt
+key UniqueDeviceID (obfuscated string re6Zb+zwFKJNlkQTUeT+/w).
+The requesting worker is blocked in a libMobileGestalt semaphore wait,
+while lsd's seeding thread waits for completion and SpringBoard waits for
+lsd's database. The root directory /private/var/db/lsd remained empty.
+Neither a GPU warning nor a disk I/O error is established as the cause.
+Disassembly confirms that the Requested MobileGestalt question is
+UniqueDeviceID, the key hashed as re6Zb+zwFKJNlkQTUeT+/w, from
+InstalledContentLibrary's built-in-app identity generation. The lsd worker
+blocks in libMobileGestalt while its other worker waits for the database
+seeding group. Do not supply the user's real hardware identifier in any
+synthetic guest or put proprietary images into Git.
+
+Next: sample the MobileGestaltHelper process stack. Its name is truncated
+to MobileGestaltHel in XNU proc_name (MAXCOMLEN=16), which the sampler uses.
+Set SWEET_QEMU_SAMPLE=SpringBoard,lsd,MobileGestaltHel,backboardd.
+Do not claim the synthetic UDID problem is fully fixed until an interactive
+SpringBoard and subsequent app launch are proven.
 - The original Redmi UFS and physical touch paths remain unchanged.
 
 ## Outstanding issues

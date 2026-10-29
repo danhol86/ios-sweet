@@ -24,7 +24,9 @@ base="$(printenv SWEET_QEMU_OUTPUT_BASE || true)"
 [[ -n "$seconds" ]] || seconds="1200"
 [[ -n "$cpus" ]] || cpus="1"
 [[ -n "$debug_console" ]] || debug_console="0"
-[[ -n "$sample" ]] || sample="SpringBoard,backboardd,datamigrator"
+# XNU proc_name uses MAXCOMLEN=16: MobileGestaltHelper is
+# "MobileGestaltHel" in the process sampler. Use its truncated name.
+[[ -n "$sample" ]] || sample="SpringBoard,lsd,MobileGestaltHel,backboardd"
 [[ -n "$sample_delay" ]] || sample_delay="12"
 [[ -n "$sample_interval" ]] || sample_interval="25"
 [[ -n "$base" ]] || base="/home/ios-sweet-test"
