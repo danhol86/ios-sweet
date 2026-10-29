@@ -193,6 +193,33 @@ user-space code also reaches SpringBoard.
 
 ## Outstanding issues
 
+### Safari / internet access (confirmed missing, 2026-10-29)
+
+Safari's UI, address bar and native keyboard work, but the running
+Windows/QEMU iOS guest **does not have working internet access**.
+Windows HTTPS to example.com returned HTTP 200, and WSL2 has an active
+eth0/default route and working DNS. QMP info network reveals QEMU's
+automatic user-mode NAT (10.0.2.0/24) with a **virtio-net-pci** card.
+The iOS kernel has no driver for this PCI network card. Guest SWEET NET
+traces show **only lo0 / 127.0.0.1** configured, with no Ethernet
+address, default route or DNS. This is not a Safari rendering fault.
+
+Engineering fix requires a QEMU-compatible NIC driver in the SWEET
+XNU kernel (prefer modern VirtIO MMIO, like the existing disk/tablet
+devices), guest Ethernet-interface registration and link state, an
+IPv4 address/default gateway and DNS configuration (probably through
+configd / IONetworkInterface). The existing USB Ethernet (ue0)
+bring-up on physical hardware is reference code for ifnet, but did
+not establish automatic configd internet connectivity. QEMU NAT's
+ordinary defaults are guest 10.0.2.15, gateway 10.0.2.2 and DNS
+10.0.2.3; these **must not be claimed configured in iOS yet**.
+After the network path works, also fix the guest clock (currently
+December 1969), since TLS validation may fail with an invalid date.
+Acceptance test: load a public HTTP page and an HTTPS page in Safari,
+demonstrate a resolved hostname and packets from the guest interface,
+and verify reconnect after a cold VM reboot. Do not change the known
+working guest disk or launcher until a test kernel passes.
+
 1. Replace the local MobileGestalt-call workaround with proper device
    identity and XPC communication while keeping the Apple userland intact.
 2. Improve boot time, add a working real-time clock (guest date starts
