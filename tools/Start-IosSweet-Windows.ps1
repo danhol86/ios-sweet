@@ -17,11 +17,15 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$wslPathResult = & wsl.exe -d Ubuntu-24.04 -- wslpath -a -u $repo
-if ($LASTEXITCODE -ne 0 -or -not $wslPathResult) {
-    throw 'WSL2 Ubuntu-24.04 is unavailable or cannot translate the repository path.'
+if ($repo -notmatch '^[A-Za-z]:\\') {
+    throw 'The project must be stored on a local Windows drive mounted in WSL2.'
 }
-$wslRepo = ($wslPathResult | Select-Object -First 1).Trim()
+$wslRepo = '/mnt/' + $repo.Substring(0,1).ToLowerInvariant() + '/' +
+    $repo.Substring(3).Replace([char]92,[char]47)
+& wsl.exe -d Ubuntu-24.04 -- test -d $wslRepo
+if ($LASTEXITCODE -ne 0) {
+    throw "WSL2 Ubuntu-24.04 cannot access the project at $wslRepo"
+}
 $kernel = "$wslRepo/xnu/out-qemu-$KernelBuild/kernel.development.sweet"
 & wsl.exe -d Ubuntu-24.04 -- test -f $kernel
 if ($LASTEXITCODE -ne 0) {
