@@ -104,6 +104,23 @@ static struct {
 } vn;
 static LCK_GRP_DECLARE(vn_grp, "sweet_virtio_net");
 static int vn_wait_channel;
+/* QEMU ARM virt exposes a PL031 RTC at this physical address. */
+#define NET_PL031_RTC   0x09010000u
+
+static void
+vn_set_guest_clock(void)
+{
+    vm_offset_t rtc = ml_io_map(NET_PL031_RTC, 0x1000);
+    if (!rtc) return;
+    uint32_t seconds = *(volatile uint32_t *)(rtc + 0); /* PL031 DR */
+    /* Reject zero/uninitialized or obviously invalid RTC values. */
+    if (seconds < 1577836800u || seconds > 4102444800u) {
+        printf("SWEET NET: invalid virtual RTC value %u\n", seconds);
+        return;
+    }
+    clock_set_calendar_microtime((clock_sec_t)seconds, 0);
+    printf("SWEET NET: calendar initialized from QEMU RTC (%u)\n", seconds);
+}
 static const uint8_t vn_mac[ETHER_ADDR_LEN] =
     { 0x02, 0x50, 0x53, 0x57, 0x00, 0x01 };
 
@@ -161,6 +178,10 @@ vn_output(ifnet_t ifp, mbuf_t m)
     __builtin_arm_dsb(0xf);
     nw(VR_NOTIFY, 1);
     vn.tx_packets++;
+    if (vn.tx_packets <= 12) {
+        printf("SWEET NET: TX packet %llu len=%u ether-type=%02x%02x\n",
+            vn.tx_packets, len, data[NET_HDR + 12], data[NET_HDR + 13]);
+    }
     lck_mtx_unlock(&vn.lock);
     ifnet_stat_increment_out(ifp, 1, len, 0);
     mbuf_freem(m);
@@ -298,6 +319,10 @@ vn_poll(void)
                 stats.bytes_in = len;
                 ifnet_input(vn.ifp, m, &stats);
                 vn.rx_packets++;
+                if (vn.rx_packets <= 12) {
+                    printf("SWEET NET: RX packet %llu len=%u ether-type=%02x%02x\n",
+                        vn.rx_packets, len, frame[12], frame[13]);
+                }
             } else if (m != NULL) mbuf_freem(m);
         }
         if (id < NET_Q) {
@@ -323,6 +348,39 @@ vn_poll(void)
 }
 
 static void
+vn_probe_dns(void)
+{
+    /* One fixed DNS query to QEMU's private NAT resolver, for diagnostics. */
+    static uint8_t query[] = {
+        0x12, 0x34, 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0,
+        7, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 3, 'c', 'o', 'm', 0,
+        0, 1, 0, 1
+    };
+    socket_t so = NULL;
+    int error = sock_socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP, NULL, NULL, &so);
+    if (error) {
+        printf("SWEET NET: DNS socket error %d\n", error);
+        return;
+    }
+    struct sockaddr_in to;
+    bzero(&to, sizeof(to));
+    to.sin_len = sizeof(to);
+    to.sin_family = AF_INET;
+    to.sin_port = htons(53);
+    to.sin_addr.s_addr = htonl(0x0a000203); /* 10.0.2.3 */
+    struct iovec io = { .iov_base = query, .iov_len = sizeof(query) };
+    struct msghdr msg = {
+        .msg_name = &to, .msg_namelen = sizeof(to),
+        .msg_iov = &io, .msg_iovlen = 1,
+    };
+    size_t sent = 0;
+    error = sock_send(so, &msg, 0, &sent);
+    printf("SWEET NET: DNS query send error=%d bytes=%llu\n",
+        error, (unsigned long long)sent);
+    sock_close(so);
+}
+
+static void
 vn_worker(void *arg __unused, wait_result_t result __unused)
 {
     /* Avoid network initialization before BSD stack and routing are ready. */
@@ -330,7 +388,9 @@ vn_worker(void *arg __unused, wait_result_t result __unused)
     clock_interval_to_deadline(5, NSEC_PER_SEC, &deadline);
     (void)assert_wait_deadline(&vn_wait_channel, THREAD_UNINT, deadline);
     thread_block(THREAD_CONTINUE_NULL);
+    vn_set_guest_clock();
     vn_configure();
+    vn_probe_dns();
     for (;;) {
         vn_poll();
         clock_interval_to_deadline(10, NSEC_PER_MSEC, &deadline);

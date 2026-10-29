@@ -195,6 +195,21 @@ user-space code also reaches SpringBoard.
 
 ### Safari / internet access (confirmed missing, 2026-10-29)
 
+**Work in progress:** A QEMU-only VirtIO MMIO Ethernet driver, explicit
+NAT device, and opt-in Windows launcher switch have been added in patch
+0087. The experimental invocation will be:
+
+~~~powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Start-IosSweet-Windows.ps1 -KernelBuild 0087 -Network -Port 8103 -Disk /home/ios-sweet-test/ios16-net-test.raw -Overlay /home/ios-sweet-test/ios16-net-test-overlay.qcow2
+~~~
+
+Do **not** use -Network on the existing verified 0086 kernel; the
+launcher correctly refuses it. Until an 0087 kernel compiles and Safari
+loads a real site, internet access is **not yet fixed**. A separate cloned
+guest image (`ios16-net-test.raw` and its QCOW2 overlay in WSL) has a
+synthetic en0 SystemConfiguration service configured for QEMU NAT;
+neither this disk nor any Apple firmware is committed to Git.
+
 Safari's UI, address bar and native keyboard work, but the running
 Windows/QEMU iOS guest **does not have working internet access**.
 Windows HTTPS to example.com returned HTTP 200, and WSL2 has an active
