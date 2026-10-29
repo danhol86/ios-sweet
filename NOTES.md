@@ -1,5 +1,8 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## QEMU multicore research (2026-10-29)
+
+QEMU virt DT reports CPU0 MPIDR=0, CPU1 MPIDR=1 (Aff0). Original SWEET CPU guard assumes physical Redmi secondary MPIDR Aff1=0x100,0x200... QEMU --smp 2 with a matching two-node ADT and cpus=2 bootarg reached a precise kernel panic at SweetCPU.cpp:80: SWEET CPU: invalid topology cpu=1 mpidr=0x1 count=2. The two-CPU disposable HFS+ test image and firmware were not modified. Experimental patch 0084-sweet-qemu-smp.patch permits QEMU Aff0 layout only when sweet_qemu_smp=1 is explicitly selected; no change to Redmi path. Patch applicability checked against real 0082+0083 XNU source. 0084 still requires macOS compilation and a fresh QEMU multi-core smoke test before enabling by default.
 ## Windows / WSL2 QEMU boot advancement (2026-10-29 evening)
 
 Kernel built from corrected patch 0082 via fork macOS Actions run 40924239864. Verified SHA256 41c6b43b2f9303f23d8e20a65cfaa8b47230070a919101f24f59cfd7a3fe305d and _sweet_virtio_rootdev linked. Kernel stored at xnu/out-qemu/kernel.development.sweet (ignored). QEMU detected disk rd=virtiodisk0, mounted actual iOS HFS+ on /, and executed real Apple launchd. First boot WITHOUT unentitled_ios_sim_launch=1 panicked CS_KILLED; repo phone logs document that critical boot arg. Second boot WITH arg reached launchd ondemand, securityd, backboardd and many real daemons; 100-second run completed no panic. In long graphical-mode run (sweetfb_noconsole=1), framebuffer shows genuine Apple boot logo in Windows viewer after more than 2 minutes. SpringBoard GUI NOT confirmed; the Apple logo stayed on screen during the first several minutes. All VM boots used snapshot=on and did not alter root image.

@@ -1,0 +1,20 @@
+diff --git a/iokit/Kernel/arm/SweetCPU.cpp b/iokit/Kernel/arm/SweetCPU.cpp
+--- a/iokit/Kernel/arm/SweetCPU.cpp
++++ b/iokit/Kernel/arm/SweetCPU.cpp
+@@ -73,9 +73,13 @@
+ 	if (*(const uint32_t *)reg->getBytesNoCopy() != cpu->phys_id) {
+ 		return false;
+ 	}
+-	/* MPIDR Aff1 = core: 0x000-0x500 A55, 0x600/0x700 A76 */
+-	if (cpu->phys_id > 0x700 || (cpu->phys_id & 0xff) != 0 ||
+-	    topology->num_cpus > SWEET_SMP_MAX_CPUS) {
++	/* QEMU virt uses Aff0 for CPUs 0..N-1, unlike Redmi's Aff1.
++	 * This override is opt-in and does not change the physical phone path. */
++	uint32_t qemu_smp = 0;
++	PE_parse_boot_argn("sweet_qemu_smp", &qemu_smp, sizeof(qemu_smp));
++	if (topology->num_cpus > SWEET_SMP_MAX_CPUS ||
++	    (qemu_smp ? (cpu->phys_id != cpu->cpu_id)
++	              : (cpu->phys_id > 0x700 || (cpu->phys_id & 0xff) != 0))) {
+ 		panic("SWEET CPU: invalid topology cpu=%u mpidr=0x%x count=%u",
+ 		    cpu->cpu_id, cpu->phys_id, topology->num_cpus);
+ 	}

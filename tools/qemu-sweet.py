@@ -224,6 +224,7 @@ def main():
     ap.add_argument('--gdb', action='store_true', help='start halted, gdb stub on :1234, no timeout')
     ap.add_argument('--hmp', action='append', default=[], help='extra monitor command run after stop (repeatable), e.g. "x /8gx 0xfffffe..."')
     ap.add_argument('--cpu', default='cortex-a76', help='QEMU CPU model (default: cortex-a76)')
+    ap.add_argument('--cpus', type=int, default=1, help='virtual CPU count (default: 1; use matching ADT and cpus= boot-arg)')
     ap.add_argument('--kernel', help='matching unstripped kernel, for exact framebuffer text decoding (uses llvm-nm)')
     ap.add_argument('--fail-on-panic', action='store_true', help='exit 2 for a visible panic, 3 for incomplete/blank decoding; requires --kernel')
     ap.add_argument('--live-serial', action='store_true', help='stream serial console output to stdout in real time')
@@ -249,6 +250,8 @@ def main():
 
     if a.write_disk and not a.disk:
         ap.error('--write-disk requires --disk')
+    if not 1 <= a.cpus <= 8:
+        ap.error('--cpus must be between 1 and 8')
     if a.disk and (not os.path.isfile(a.disk) or os.path.getsize(a.disk) % 512):
         ap.error('--disk must name an existing raw image with a size divisible by 512 bytes')
 
@@ -285,7 +288,7 @@ def main():
            # QEMU defaults its MMIO transport to legacy v1; the kernel driver
            # intentionally implements the modern VirtIO v2 transport only.
            '-global', 'virtio-mmio.force-legacy=false',
-           '-cpu', a.cpu, '-smp', '1', '-m', f'{ram_gib}G',
+           '-cpu', a.cpu, '-smp', str(a.cpus), '-m', f'{ram_gib}G',
            '-nographic', '-serial', f'file:{out}/serial.txt', '-qmp', f'unix:{mon},server,nowait',
            '-d', 'int,guest_errors,unimp', '-D', f'{out}/qemu.log', '-no-reboot',
            '-device', f'loader,file={out}/ram.bin,addr={phys_base:#x},force-raw=on',

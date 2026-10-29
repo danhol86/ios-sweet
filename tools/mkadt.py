@@ -74,7 +74,7 @@ def node(name, props=(), children=()):
     return n
 
 
-def build(seed=None, qemu=False, highmem=False):
+def build(seed=None, qemu=False, highmem=False, qemu_cpus=1):
     """qemu=True: same tree, but with QEMU virt's GIC addresses and CNTFRQ (tools/qemu-sweet.py)."""
     phys_base, mem_size = (HIGH_PHYS_BASE, HIGH_MEM_SIZE) if highmem else (PHYS_BASE, MEM_SIZE)
     # Carve the panic log off the top so the kernel never allocates over it.
@@ -132,14 +132,18 @@ def build(seed=None, qemu=False, highmem=False):
     # SWEET SMP: all eight cores in physical-core order (0-5 Cortex-A55,
     # 6-7 Cortex-A76), one homogeneous cluster. The kernel defaults to one
     # and uses cpus=N to select an initial prefix (N <= 8).
-    # QEMU retains its original single-CPU tree: its MPIDRs differ from sweet.
+    # QEMU v8 virt uses Aff0 = 0,1,2,... for virtual CPUs (confirmed via
+    # -M virt,dumpdtb=... -smp 2). Keep one CPU by default; the QEMU-only
+    # qemu_cpus option selects multiple nodes with the correct MPIDRs.
+    if not 1 <= qemu_cpus <= 8:
+        raise ValueError("qemu_cpus must be in [1,8]")
     cpu_nodes = []
-    for core in range(1 if qemu else 8):
+    for core in range(qemu_cpus if qemu else 8):
         cpu_nodes.append(node(f'cpu{core}', [
             ph(),
             ('device_type', cstr('cpu')),
             ('compatible', cstr('qcom,kryo470') + cstr('ARM,v8')),
-            ('reg', u32(core << 8)),  # actual MPIDR Aff1:Aff0, NOT logical ID
+            ('reg', u32(core if qemu else core << 8)),  # QEMU Aff0; Redmi Aff1:Aff0
             ('cpu-id', u32(core)),   # descriptive: XNU assigns IDs by DT order
             ('cluster-id', u32(0)),  # descriptive; see ml_parse_cpu_topology
             ('cluster-type', u32(0)),  # homogeneous CLUSTER_TYPE_SMP, not AMP
@@ -242,7 +246,10 @@ def build(seed=None, qemu=False, highmem=False):
 
 
 if __name__ == '__main__':
-    root = build(qemu='--qemu' in sys.argv, highmem='--highmem' in sys.argv)
+    qemu_cpus = next((int(arg.split('=',1)[1]) for arg in sys.argv
+                      if arg.startswith('--qemu-cpus=')), 1)
+    root = build(qemu='--qemu' in sys.argv, highmem='--highmem' in sys.argv,
+                 qemu_cpus=qemu_cpus)
     blob = adt.serialize(root)
     open(sys.argv[1], 'wb').write(blob)
     if '--dump' in sys.argv:

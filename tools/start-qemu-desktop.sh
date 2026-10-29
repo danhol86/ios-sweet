@@ -8,12 +8,14 @@ kernel="$(printenv SWEET_QEMU_KERNEL || true)"
 disk="$(printenv SWEET_QEMU_DISK || true)"
 port="$(printenv SWEET_QEMU_PORT || true)"
 seconds="$(printenv SWEET_QEMU_SECONDS || true)"
+cpus="$(printenv SWEET_QEMU_CPUS || true)"
 debug_console="$(printenv SWEET_QEMU_DEBUG_CONSOLE || true)"
 base="$(printenv SWEET_QEMU_OUTPUT_BASE || true)"
 [[ -n "$kernel" ]] || kernel="$repo/xnu/out-qemu/kernel.development.sweet"
 [[ -n "$disk" ]] || disk="/home/ios-sweet-test/ios16-root-bulk.img"
 [[ -n "$port" ]] || port="8099"
 [[ -n "$seconds" ]] || seconds="1200"
+[[ -n "$cpus" ]] || cpus="1"
 [[ -n "$debug_console" ]] || debug_console="0"
 [[ -n "$base" ]] || base="/home/ios-sweet-test"
 run="$base/desktop-qemu-$(date -u +%Y%m%d-%H%M%S)"
@@ -34,14 +36,22 @@ if ! llvm-nm --defined-only "$kernel" | grep 'sweet_virtio_rootdev' > /dev/null;
     echo "This kernel does not contain the experimental VirtIO root driver." >&2
     exit 2
 fi
+if [[ "$cpus" != "1" ]] && ! grep -a -q 'sweet_qemu_smp' "$kernel"; then
+    echo "This kernel lacks the QEMU SMP topology patch; set SWEET_QEMU_CPUS=1." >&2
+    exit 2
+fi
 mkdir -p "$run"
-python3 "$repo/tools/mkadt.py" "$run/qemu.adt" --qemu --highmem
+python3 "$repo/tools/mkadt.py" "$run/qemu.adt" --qemu --highmem "--qemu-cpus=$cpus"
 fbarg="sweetfb_noconsole=1"
 if [[ "$debug_console" == "1" ]]; then
     fbarg="sweetfb_noconsole=0"
 fi
+smp_flag=""
+if [[ "$cpus" != "1" ]]; then
+    smp_flag="sweet_qemu_smp=1"
+fi
 python3 "$repo/tools/mkpayload.py" "$kernel" "$run/qemu.adt" "$run/payload.bin" \
-    --cmdline "debug=0xc serial=3 cpus=1 keepsyms=1 -enable_kprintf_spam -noprogress rd=virtiodisk0 unentitled_ios_sim_launch=1 rootrw=1 launchd_unsecure_cache=1 ignition_level=1 wdt_test=no_user_checkin wdt=-1 $fbarg"
+    --cmdline "debug=0xc serial=3 cpus=$cpus keepsyms=1 -enable_kprintf_spam -noprogress rd=virtiodisk0 unentitled_ios_sim_launch=1 rootrw=1 launchd_unsecure_cache=1 ignition_level=1 wdt_test=no_user_checkin wdt=-1 $fbarg $smp_flag"
 
 python3 "$repo/tools/qemu-live-screen.py" "$run" --enable-input --port "$port" > "$run/viewer.log" 2>&1 &
 viewer_pid=$!
@@ -53,7 +63,7 @@ trap cleanup EXIT
 echo "Starting experimental iOS XNU; live display at http://127.0.0.1:$port"
 echo "QEMU disk snapshot is enabled; the original image is not modified."
 echo "QEMU logs and framebuffer: $run"
-echo "Browser sends tablet events, but iOS touchscreen requires guest HID support."
+echo "Browser sends VirtIO tablet events; iOS touchscreen functionality remains experimental."
 python3 "$repo/tools/qemu-sweet.py" "$run/payload.bin" "$run" \
-    --kernel "$kernel" --disk "$disk" --tablet \
+    --kernel "$kernel" --disk "$disk" --tablet --cpus "$cpus" \
     --secs "$seconds" --live-serial

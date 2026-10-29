@@ -43,7 +43,8 @@ wsl -d Ubuntu-24.04 -- env SWEET_QEMU_DEBUG_CONSOLE=1 SWEET_QEMU_SECONDS=180 bas
 
 Environment overrides: SWEET_QEMU_KERNEL (kernel path as seen from WSL),
 SWEET_QEMU_DISK (raw HFS+ image), SWEET_QEMU_PORT (default 8099),
-SWEET_QEMU_SECONDS (default 1200), and SWEET_QEMU_OUTPUT_BASE.
+SWEET_QEMU_SECONDS (default 1200), SWEET_QEMU_OUTPUT_BASE, and
+SWEET_QEMU_CPUS (default 1).
 
 **Safety:** The QEMU disk uses snapshot mode by default; guest writes are
 discarded, protecting the verified source. Never use --write-disk on the
@@ -74,6 +75,11 @@ original image during experimental kernel testing.
   and correct block FLUSH ioctl (DKIOCSYNCHRONIZE / DKIOCSYNCHRONIZECACHE).
   The host protocols are tested; the kernel patch is not validated by CI or
   a live boot until the next build.
+- 0084: Optional QEMU SMP topology override. A two-CPU disposable-ramdisk
+  test showed that the upstream kernel panics on QEMU's Aff0 MPIDRs
+  (SweetCPU invalid topology). The override only applies with the
+  sweet_qemu_smp=1 boot argument; one CPU remains the proven default until
+  a rebuilt kernel is actually tested with multiple virtual CPUs.
 - The original Redmi UFS and physical touch paths remain unchanged.
 
 ## Outstanding issues
@@ -87,6 +93,9 @@ original image during experimental kernel testing.
    creates its framebuffer surface. Longer guest runs may be needed.
 4. User interaction is conditional on iOS HID delivery, not merely QMP
    accepting tablet events.
+5. Test the optional QEMU-only multicore topology patch before using
+   SWEET_QEMU_CPUS greater than 1. The launcher refuses multicore when
+   the kernel binary does not contain the new SMP boot-argument string.
 
 Do not claim the project is a fully functional iOS simulator until a real
 interactive SpringBoard and app launch have been demonstrated.
