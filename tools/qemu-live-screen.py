@@ -30,17 +30,23 @@ h1{font-size:20px;margin:4px 0 8px}
 p{font-size:13px;color:#a5b3c7;line-height:1.5}
 #state{font:13px ui-monospace,monospace;margin:10px}
 #frame{display:block;width:auto;max-width:100%;height:auto;max-height:80vh;margin:12px auto;background:black;border:1px solid #374151;border-radius:22px;touch-action:none}
+button{font:600 14px system-ui,sans-serif;padding:10px 18px;margin:5px;background:#323b4b;color:#fff;border:1px solid #64748b;border-radius:10px;cursor:pointer}
+button:disabled{opacity:.45;cursor:default}
 small{display:block;margin-top:12px;color:#8995a8}
 </style></head><body><main>
 <h1>ios-sweet QEMU display</h1>
 <p>Live physical framebuffer snapshots from the ARM64 VM. INPUT_STATUS</p>
 <div id="state">Connecting to QEMU...</div>
 <img id="frame" alt="QEMU iPhone framebuffer">
+<button type="button" id="swipehome">Swipe up / Home</button>
+<p>Click or drag directly on the iPhone image. Swipe from the very bottom white bar to return Home, or use the button.</p>
 <small>Local development viewer. Close this page to stop polling; the VM is managed separately.</small>
 </main><script>
 var img=document.getElementById("frame"), state=document.getElementById("state");
 var busy=false;
 var inputEnabled=INPUT_ENABLED, pointerActive=false, lastPointer=0;
+var homeButton=document.getElementById("swipehome");
+homeButton.disabled=!inputEnabled;
 async function refresh(){
  if(busy) return;
  busy=true;
@@ -81,6 +87,25 @@ function pointerUp(e){
 }
 img.addEventListener("pointerup",pointerUp);
 img.addEventListener("pointercancel",pointerUp);
+async function sendAt(x,y,down){
+ var r=await fetch("/touch",{method:"POST",headers:{"Content-Type":"application/json"},
+   body:JSON.stringify({x:x,y:y,down:down})});
+ if(!r.ok)throw new Error("QEMU rejected touchscreen input ("+r.status+")");
+}
+homeButton.addEventListener("click",async function(){
+ if(!inputEnabled)return;
+ homeButton.disabled=true;
+ state.textContent="Sending iOS home gesture...";
+ try{
+   await sendAt(.50,.998,true);
+   for(var i=1;i<=28;i++){
+     await new Promise(function(resolve){setTimeout(resolve,35)});
+     await sendAt(.50,.998-i*.027,true);
+   }
+   await sendAt(.50,.242,false);
+ }catch(e){state.textContent="Home gesture failed: "+e.message}
+ finally{homeButton.disabled=false}
+});
 </script></body></html>"""
 
 def qmp_tablet_event(sockpath, events):

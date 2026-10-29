@@ -140,6 +140,19 @@ The log contains crash reports with backtraces (`CRASH name ...`), IOKit traces 
 
 ### QEMU
 
+**Windows support (experimental):** On the prepared Windows 11 + WSL2
+Ubuntu host, the iPhone X iOS 16.7.16 root now boots under 4-vCPU QEMU
+with a real lock screen, home screen, swipe gestures, a working Settings
+app, Safari, and native iOS touch-keyboard text entry. Open the
+iOS Sweet (Windows) desktop shortcut, or invoke
+tools/Start-IosSweet-Windows.ps1 with -WorkingGuest. The Windows browser
+viewer is at http://127.0.0.1:8099/.
+
+The interactive guest requires a locally prepared private test root
+with a MobileGestalt-related compatibility workaround; the modified
+Apple userland is never distributed or committed. See
+[Windows QEMU setup and limitations](docs/QEMU_WINDOWS.md).
+
 `tools/qemu-sweet.py` boots the same kernel on QEMU `virt` with a test RAM-disk root. It is useful for kernel-only changes; see `NOTES.md`.
 
 ## Repository layout

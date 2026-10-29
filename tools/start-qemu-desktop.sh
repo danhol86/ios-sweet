@@ -12,6 +12,7 @@ port="$(printenv SWEET_QEMU_PORT || true)"
 seconds="$(printenv SWEET_QEMU_SECONDS || true)"
 cpus="$(printenv SWEET_QEMU_CPUS || true)"
 debug_console="$(printenv SWEET_QEMU_DEBUG_CONSOLE || true)"
+adt_override="$(printenv SWEET_QEMU_ADT || true)"
 sample="$(printenv SWEET_QEMU_SAMPLE || true)"
 sample_delay="$(printenv SWEET_QEMU_SAMPLE_DELAY || true)"
 sample_interval="$(printenv SWEET_QEMU_SAMPLE_INTERVAL || true)"
@@ -62,7 +63,13 @@ if [[ "$cpus" != "1" ]] && ! grep -a -q 'sweet_qemu_smp' "$kernel"; then
     exit 2
 fi
 mkdir -p "$run"
-python3 "$repo/tools/mkadt.py" "$run/qemu.adt" --qemu --highmem "--qemu-cpus=$cpus"
+if [[ -n "$adt_override" ]]; then
+    [[ -f "$adt_override" ]] || { echo "QEMU ADT override is missing: $adt_override" >&2; exit 2; }
+    cp "$adt_override" "$run/qemu.adt"
+    echo "Using experimental device-tree override: $adt_override"
+else
+    python3 "$repo/tools/mkadt.py" "$run/qemu.adt" --qemu --highmem "--qemu-cpus=$cpus"
+fi
 fbarg="sweetfb_noconsole=1"
 if [[ "$debug_console" == "1" ]]; then
     fbarg="sweetfb_noconsole=0"
