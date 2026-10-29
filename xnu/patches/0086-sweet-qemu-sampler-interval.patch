@@ -12,7 +12,7 @@ diff --git a/bsd/dev/sweet_sample.c b/bsd/dev/sweet_sample.c
 +	PE_parse_boot_argn("sweetsample_interval", &interval_secs, sizeof(interval_secs));
 +	if (delay_secs < 1 || delay_secs > 300) delay_secs = 90;
 +	if (interval_secs < 1 || interval_secs > 300) interval_secs = 120;
-+	(void)tsleep(&chan, PZERO, delay_secs * hz);
++	(void)tsleep(&chan, PZERO, "sweetsmp", delay_secs * hz);
  	for (int i = 0; i < 40; i++) {
  		printf("SMP --- sample %d\n", i);
  		proc_iterate(PROC_ALLPROCLIST, sweet_sample_proc, NULL, NULL, NULL);
