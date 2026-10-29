@@ -1,0 +1,23 @@
+--- a/bsd/kern/sweet_amfi.c
++++ b/bsd/kern/sweet_amfi.c
+@@ -46,5 +46,10 @@
+ static TUNABLE(uint32_t, sweet_amfi_debug, "sweet_amfi_debug", 0);
+ 
++/* QEMU-only: iOS networking daemons delegate their sockets to one another.
++ * Never broaden this privilege on a physical SWEET boot by default. */
++static TUNABLE(uint32_t, sweet_qemu_network_delegate,
++    "sweet_qemu_network_delegate", 0);
++
+ /* The entitlements object of a process's main binary, or NULL. */
+ static void *
+ sweet_proc_entitlements(proc_t proc)
+@@ -321,6 +326,8 @@
+ static int
+ sweet_sandbox_priv_grant(kauth_cred_t cred __unused, int priv)
+ {
+-	if (priv == PRIV_WORK_INTERVAL) {
++	if (priv == PRIV_WORK_INTERVAL ||
++	    (priv == PRIV_NET_PRIVILEGED_SOCKET_DELEGATE &&
++	    sweet_qemu_network_delegate != 0)) {
+ 		return 0;
+ 	}
