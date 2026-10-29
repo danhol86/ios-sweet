@@ -266,6 +266,7 @@ def main():
     ap.add_argument('--write-disk', action='store_true', help='persist changes to --disk (default: QEMU copy-on-write snapshot)')
     ap.add_argument('--overlay', help='QCOW2 persistent writable overlay with --disk as its unchanged raw backing file')
     ap.add_argument('--tablet', action='store_true', help='attach a VirtIO tablet for future iOS touch input')
+    ap.add_argument('--network', action='store_true', help='QEMU VirtIO MMIO Ethernet with user-mode NAT; requires networking kernel')
     ap.add_argument('--check-env', action='store_true', help='check QEMU installation and dependencies without running a payload')
     a = ap.parse_args()
 
@@ -361,6 +362,10 @@ def main():
     if a.tablet:
         cmd += ['-device', 'virtio-tablet-device,id=sweet-tablet']
         print('[*] VirtIO tablet added (requires an in-kernel input driver)', file=sys.stderr)
+    if a.network:
+        cmd += ['-nic', 'none', '-netdev', 'user,id=sweetnet,net=10.0.2.0/24',
+                '-device', 'virtio-net-device,netdev=sweetnet,mac=02:50:53:57:00:01']
+        print('[*] QEMU NAT and VirtIO MMIO Ethernet enabled', file=sys.stderr)
     if a.gdb:
         cmd += ['-S', '-gdb', 'tcp::1234']
 

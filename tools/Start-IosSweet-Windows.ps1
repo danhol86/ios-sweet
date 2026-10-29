@@ -19,6 +19,7 @@ param(
     [ValidatePattern('^[0-9]{4}$')][string]$KernelBuild = '0086',
     [switch]$Ephemeral,
     [switch]$WorkingGuest,
+    [switch]$Network,
     [string]$Disk = '',
     [string]$Overlay = ''
 )
@@ -89,11 +90,13 @@ $browserJob = Start-Job -ArgumentList $url -ScriptBlock {
 }
 try {
     $ephemeralValue = if ($Ephemeral) { '1' } else { '0' }
+    $networkValue = if ($Network) { '1' } else { '0' }
     $wslArguments = @(
         '-d', 'Ubuntu-24.04', '--', 'env',
         "SWEET_QEMU_KERNEL=$kernel",
         "SWEET_QEMU_CPUS=$Cpus", "SWEET_QEMU_SECONDS=$Seconds",
         "SWEET_QEMU_PORT=$Port", "SWEET_QEMU_EPHEMERAL=$ephemeralValue",
+        "SWEET_QEMU_NETWORK=$networkValue",
         "SWEET_QEMU_DISK=$Disk", "SWEET_QEMU_OVERLAY=$Overlay",
         'bash', "$wslRepo/tools/start-qemu-desktop.sh"
     )

@@ -1,0 +1,419 @@
+/*
+ * Experimental QEMU-only VirtIO MMIO Ethernet for the SWEET XNU port.
+ * Deliberately does not probe or modify the physical Redmi USB/Wi-Fi paths.
+ * Two legacy split-ring queues (RX=0, TX=1), with modern VirtIO v2 transport.
+ *
+ * No guest-offload negotiation: the guest provides complete Ethernet/IP
+ * packets including software checksums. QEMU user-mode NAT supplies L2.
+ */
+#if defined(ARM64_BOARD_CONFIG_SWEET)
+#include <sys/param.h>
+#include <sys/systm.h>
+#include <sys/errno.h>
+#include <sys/sockio.h>
+#include <sys/kpi_mbuf.h>
+#include <sys/kpi_socket.h>
+#include <net/if.h>
+#include <net/if_types.h>
+#include <net/ethernet.h>
+#include <net/if_ether.h>
+#include <net/ether_if_module.h>
+#include <net/kpi_interface.h>
+#include <net/kpi_protocol.h>
+#include <net/route.h>
+#include <net/route_private.h>
+#include <netinet/in.h>
+#include <kern/locks.h>
+#include <kern/thread.h>
+#include <kern/clock.h>
+#include <kern/sched_prim.h>
+#include <machine/machine_routines.h>
+#include <arm/caches_internal.h>
+#include <vm/pmap.h>
+#include <vm/vm_kern.h>
+#include <libkern/libkern.h>
+
+extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
+extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
+
+#define NET_MMIO_BASE  0x0a000000u
+#define NET_MMIO_SIZE  0x4000u
+#define NET_SLOT       0x200u
+#define NET_MAGIC      0x74726976u
+#define NET_DEVICE     1u
+#define NET_VERSION    2u
+#define NET_Q          8u
+#define NET_BUF        2048u
+#define NET_HDR        10u
+#define NET_RX_BASE    0x3000u
+#define NET_TX_BASE    0x13000u
+#define NET_DMA_SIZE   0x20000u
+
+#define VR_MAGIC        0x000u
+#define VR_VERSION      0x004u
+#define VR_DEVICE       0x008u
+#define VR_FEATURES     0x010u
+#define VR_FEATURES_SEL 0x014u
+#define VR_DRIVER_FEAT  0x020u
+#define VR_DRIVER_SEL   0x024u
+#define VR_QUEUE_SEL    0x030u
+#define VR_QUEUE_MAX    0x034u
+#define VR_QUEUE_NUM    0x038u
+#define VR_QUEUE_READY  0x044u
+#define VR_NOTIFY       0x050u
+#define VR_STATUS       0x070u
+#define VR_DESC_ADDR    0x080u
+#define VR_AVAIL_ADDR   0x090u
+#define VR_USED_ADDR    0x0a0u
+
+#define NET_RX_DESC    0x0000u
+#define NET_RX_AVAIL   0x1000u
+#define NET_RX_USED    0x2000u
+#define NET_TX_DESC    0x10000u
+#define NET_TX_AVAIL   0x11000u
+#define NET_TX_USED    0x12000u
+
+struct net_desc {
+    uint64_t addr;
+    uint32_t len;
+    uint16_t flags, next;
+};
+struct net_avail {
+    uint16_t flags, idx;
+    uint16_t ring[NET_Q];
+    uint16_t used_event;
+};
+struct net_used_item { uint32_t id, len; };
+struct net_used {
+    uint16_t flags;
+    volatile uint16_t idx;
+    struct net_used_item ring[NET_Q];
+    uint16_t avail_event;
+};
+
+static struct {
+    vm_offset_t regs, dma;
+    uint64_t pa;
+    uint16_t rx_seen, tx_seen;
+    uint8_t tx_busy[NET_Q];
+    uint16_t tx_next;
+    ifnet_t ifp;
+    lck_mtx_t lock;
+    bool enabled, linked;
+    uint64_t rx_packets, tx_packets;
+} vn;
+static LCK_GRP_DECLARE(vn_grp, "sweet_virtio_net");
+static int vn_wait_channel;
+static const uint8_t vn_mac[ETHER_ADDR_LEN] =
+    { 0x02, 0x50, 0x53, 0x57, 0x00, 0x01 };
+
+static inline uint32_t nr(unsigned reg)
+{
+    return *(volatile uint32_t *)(vn.regs + reg);
+}
+static inline void nw(unsigned reg, uint32_t val)
+{
+    *(volatile uint32_t *)(vn.regs + reg) = val;
+}
+static void nsync(unsigned off, unsigned size)
+{
+    flush_dcache64((addr64_t)(vn.pa + off), size, TRUE);
+}
+static void naddr(unsigned reg, uint64_t pa)
+{
+    nw(reg, (uint32_t)pa);
+    nw(reg + 4, (uint32_t)(pa >> 32));
+}
+
+static errno_t
+vn_output(ifnet_t ifp, mbuf_t m)
+{
+    uint32_t len = (uint32_t)mbuf_pkthdr_len(m);
+    if (len < ETHER_HDR_LEN || len > ETHER_MAX_LEN - ETHER_CRC_LEN) {
+        mbuf_freem(m);
+        return EMSGSIZE;
+    }
+    lck_mtx_lock(&vn.lock);
+    unsigned slot = vn.tx_next % NET_Q;
+    if (!vn.enabled || vn.tx_busy[slot]) {
+        lck_mtx_unlock(&vn.lock);
+        mbuf_freem(m);
+        return ENOBUFS;
+    }
+    vn.tx_busy[slot] = 1;
+    vn.tx_next++;
+    unsigned off = NET_TX_BASE + slot * NET_BUF;
+    uint8_t *data = (uint8_t *)(vn.dma + off);
+    bzero(data, NET_HDR);
+    mbuf_copydata(m, 0, len, data + NET_HDR);
+    struct net_desc *d = (struct net_desc *)(vn.dma + NET_TX_DESC);
+    struct net_avail *a = (struct net_avail *)(vn.dma + NET_TX_AVAIL);
+    d[slot].addr = vn.pa + off;
+    d[slot].len = len + NET_HDR;
+    d[slot].flags = 0;
+    d[slot].next = 0;
+    nsync(off, len + NET_HDR);
+    nsync(NET_TX_DESC + slot * sizeof(*d), sizeof(*d));
+    a->ring[a->idx % NET_Q] = (uint16_t)slot;
+    __builtin_arm_dsb(0xf);
+    a->idx++;
+    nsync(NET_TX_AVAIL, sizeof(*a));
+    __builtin_arm_dsb(0xf);
+    nw(VR_NOTIFY, 1);
+    vn.tx_packets++;
+    lck_mtx_unlock(&vn.lock);
+    ifnet_stat_increment_out(ifp, 1, len, 0);
+    mbuf_freem(m);
+    return 0;
+}
+
+static errno_t
+vn_ioctl(ifnet_t ifp, unsigned long cmd, void *data __unused)
+{
+    switch (cmd) {
+    case SIOCSIFADDR:
+    case SIOCAIFADDR:
+        ifnet_set_flags(ifp, IFF_UP, IFF_UP);
+        return 0;
+    case SIOCSIFFLAGS:
+    case SIOCADDMULTI:
+    case SIOCDELMULTI:
+        return 0;
+    default:
+        return EOPNOTSUPP;
+    }
+}
+static void vn_detach(ifnet_t ifp __unused) { }
+
+static void
+vn_configure(void)
+{
+    struct ifnet_init_eparams init;
+    bzero(&init, sizeof(init));
+    init.ver = IFNET_INIT_CURRENT_VERSION;
+    init.len = sizeof(init);
+    init.flags = IFNET_INIT_LEGACY;
+    init.uniqueid = "sweet-qemu-virtio-net";
+    init.uniqueid_len = sizeof("sweet-qemu-virtio-net") - 1;
+    init.name = "en";
+    init.unit = 0;
+    init.family = IFNET_FAMILY_ETHERNET;
+    init.type = IFT_ETHER;
+    init.output = vn_output;
+    init.demux = ether_demux;
+    init.add_proto = ether_add_proto;
+    init.del_proto = ether_del_proto;
+    init.check_multi = ether_check_multi;
+    init.framer_extended = ether_frameout_extended;
+    init.ioctl = vn_ioctl;
+    init.detach = vn_detach;
+    init.broadcast_addr = etherbroadcastaddr;
+    init.broadcast_len = ETHER_ADDR_LEN;
+    int error = ifnet_allocate_extended(&init, &vn.ifp);
+    if (error) {
+        printf("SWEET NET: allocate Ethernet failed %d\n", error);
+        return;
+    }
+    ifnet_set_addrlen(vn.ifp, ETHER_ADDR_LEN);
+    ifnet_set_hdrlen(vn.ifp, ETHER_HDR_LEN);
+    ifnet_set_mtu(vn.ifp, ETHERMTU);
+    ifnet_set_baudrate(vn.ifp, 1000000000);
+    ifnet_set_flags(vn.ifp, IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST, 0xffff);
+    error = ifnet_attach(vn.ifp, NULL);
+    if (error) {
+        printf("SWEET NET: attach Ethernet failed %d\n", error);
+        vn.ifp = NULL;
+        return;
+    }
+    ifnet_set_lladdr(vn.ifp, vn_mac, ETHER_ADDR_LEN);
+    error = proto_plumb(PF_INET, vn.ifp);
+    socket_t so = NULL;
+    if (!error) error = sock_socket(PF_INET, SOCK_DGRAM, 0, NULL, NULL, &so);
+    if (!error) {
+        struct ifaliasreq req;
+        bzero(&req, sizeof(req));
+        snprintf(req.ifra_name, sizeof(req.ifra_name), "en0");
+        struct sockaddr_in *sin = (struct sockaddr_in *)&req.ifra_addr;
+        sin->sin_len = sizeof(*sin);
+        sin->sin_family = AF_INET;
+        sin->sin_addr.s_addr = htonl(0x0a00020f); /* 10.0.2.15 */
+        sin = (struct sockaddr_in *)&req.ifra_mask;
+        sin->sin_len = sizeof(*sin);
+        sin->sin_family = AF_INET;
+        sin->sin_addr.s_addr = htonl(0xffffff00);
+        sin = (struct sockaddr_in *)&req.ifra_broadaddr;
+        sin->sin_len = sizeof(*sin);
+        sin->sin_family = AF_INET;
+        sin->sin_addr.s_addr = htonl(0x0a0002ff);
+        error = sock_ioctl(so, SIOCAIFADDR, &req);
+    }
+    if (so != NULL) sock_close(so);
+    ifnet_set_flags(vn.ifp, IFF_UP | IFF_RUNNING, IFF_UP | IFF_RUNNING);
+    struct sockaddr_in dst, gw, mask;
+    bzero(&dst, sizeof(dst));
+    bzero(&gw, sizeof(gw));
+    bzero(&mask, sizeof(mask));
+    dst.sin_len = gw.sin_len = mask.sin_len = sizeof(dst);
+    dst.sin_family = gw.sin_family = mask.sin_family = AF_INET;
+    gw.sin_addr.s_addr = htonl(0x0a000202); /* QEMU NAT gateway 10.0.2.2 */
+    int route_error = rtrequest(RTM_ADD, (struct sockaddr *)&dst,
+        (struct sockaddr *)&gw, (struct sockaddr *)&mask,
+        RTF_UP | RTF_GATEWAY | RTF_STATIC, NULL);
+    printf("SWEET NET: en0 10.0.2.15/24 configure=%d default-route=%d\n",
+        error, route_error);
+    vn.linked = true;
+}
+
+static void
+vn_poll(void)
+{
+    struct net_used *rx = (struct net_used *)(vn.dma + NET_RX_USED);
+    struct net_used *tx = (struct net_used *)(vn.dma + NET_TX_USED);
+    struct net_avail *avail = (struct net_avail *)(vn.dma + NET_RX_AVAIL);
+    nsync(NET_RX_USED, sizeof(*rx));
+    while (vn.rx_seen != rx->idx) {
+        struct net_used_item item = rx->ring[vn.rx_seen % NET_Q];
+        unsigned id = item.id;
+        if (id < NET_Q && item.len >= NET_HDR + ETHER_HDR_LEN &&
+            item.len <= NET_BUF && vn.ifp != NULL) {
+            unsigned off = NET_RX_BASE + id * NET_BUF;
+            nsync(off, item.len);
+            const uint8_t *frame = (const uint8_t *)(vn.dma + off + NET_HDR);
+            unsigned len = item.len - NET_HDR;
+            mbuf_t m = NULL;
+            if (mbuf_gethdr(MBUF_DONTWAIT, MBUF_TYPE_DATA, &m) == 0 &&
+                mbuf_mclget(MBUF_DONTWAIT, MBUF_TYPE_DATA, &m) == 0 &&
+                (mbuf_flags(m) & MBUF_EXT) && mbuf_maxlen(m) >= len) {
+                memcpy(mbuf_data(m), frame, len);
+                mbuf_setlen(m, len);
+                mbuf_pkthdr_setlen(m, len);
+                void *header = mbuf_data(m);
+                mbuf_pkthdr_setrcvif(m, vn.ifp);
+                mbuf_pkthdr_setheader(m, header);
+                mbuf_pkthdr_adjustlen(m, -ETHER_HDR_LEN);
+                (void)mbuf_setdata(m, (char *)header + ETHER_HDR_LEN,
+                    len - ETHER_HDR_LEN);
+                struct ifnet_stat_increment_param stats = {};
+                stats.packets_in = 1;
+                stats.bytes_in = len;
+                ifnet_input(vn.ifp, m, &stats);
+                vn.rx_packets++;
+            } else if (m != NULL) mbuf_freem(m);
+        }
+        if (id < NET_Q) {
+            struct net_desc *d = (struct net_desc *)(vn.dma + NET_RX_DESC);
+            d[id].len = NET_BUF;
+            nsync(NET_RX_DESC + id * sizeof(*d), sizeof(*d));
+            avail->ring[avail->idx % NET_Q] = (uint16_t)id;
+            avail->idx++;
+        }
+        vn.rx_seen++;
+    }
+    nsync(NET_RX_AVAIL, sizeof(*avail));
+    __builtin_arm_dsb(0xf);
+    nw(VR_NOTIFY, 0);
+    nsync(NET_TX_USED, sizeof(*tx));
+    lck_mtx_lock(&vn.lock);
+    while (vn.tx_seen != tx->idx) {
+        unsigned id = tx->ring[vn.tx_seen % NET_Q].id;
+        if (id < NET_Q) vn.tx_busy[id] = 0;
+        vn.tx_seen++;
+    }
+    lck_mtx_unlock(&vn.lock);
+}
+
+static void
+vn_worker(void *arg __unused, wait_result_t result __unused)
+{
+    /* Avoid network initialization before BSD stack and routing are ready. */
+    uint64_t deadline;
+    clock_interval_to_deadline(5, NSEC_PER_SEC, &deadline);
+    (void)assert_wait_deadline(&vn_wait_channel, THREAD_UNINT, deadline);
+    thread_block(THREAD_CONTINUE_NULL);
+    vn_configure();
+    for (;;) {
+        vn_poll();
+        clock_interval_to_deadline(10, NSEC_PER_MSEC, &deadline);
+        (void)assert_wait_deadline(&vn_wait_channel, THREAD_UNINT, deadline);
+        thread_block(THREAD_CONTINUE_NULL);
+    }
+}
+
+void sweet_virtio_net_init(void);
+void sweet_virtio_net_init(void)
+{
+    vm_offset_t window = ml_io_map(NET_MMIO_BASE, NET_MMIO_SIZE);
+    if (!window) return;
+    for (unsigned i = 0; i < NET_MMIO_SIZE / NET_SLOT; i++) {
+        vm_offset_t regs = window + i * NET_SLOT;
+        volatile uint32_t *r = (volatile uint32_t *)regs;
+        if (r[VR_MAGIC / 4] == NET_MAGIC &&
+            r[VR_VERSION / 4] == NET_VERSION &&
+            r[VR_DEVICE / 4] == NET_DEVICE) {
+            vn.regs = regs;
+            printf("SWEET NET: VirtIO MMIO Ethernet at 0x%x\n",
+                NET_MMIO_BASE + i * NET_SLOT);
+            break;
+        }
+    }
+    if (!vn.regs) return;
+    nw(VR_STATUS, 0);
+    nw(VR_STATUS, 3);
+    nw(VR_FEATURES_SEL, 1);
+    if (!(nr(VR_FEATURES) & 1u)) return; /* VIRTIO_F_VERSION_1 */
+    nw(VR_DRIVER_SEL, 0);
+    nw(VR_DRIVER_FEAT, 0); /* No offloads, no mergeable receive buffers */
+    nw(VR_DRIVER_SEL, 1);
+    nw(VR_DRIVER_FEAT, 1u);
+    nw(VR_STATUS, 11);
+    if (!(nr(VR_STATUS) & 8u)) return;
+    if (kmem_alloc_contig(kernel_map, &vn.dma, NET_DMA_SIZE,
+        PAGE_MASK, 0, 0, KMA_DATA | KMA_ZERO | KMA_PERMANENT,
+        VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) return;
+    ppnum_t page = pmap_find_phys(kernel_pmap, (addr64_t)vn.dma);
+    if (!page) return;
+    vn.pa = ptoa_64(page);
+    for (unsigned q = 0; q < 2; q++) {
+        unsigned desc = q ? NET_TX_DESC : NET_RX_DESC;
+        unsigned av = q ? NET_TX_AVAIL : NET_RX_AVAIL;
+        unsigned used = q ? NET_TX_USED : NET_RX_USED;
+        nw(VR_QUEUE_SEL, q);
+        if (nr(VR_QUEUE_MAX) < NET_Q || nr(VR_QUEUE_READY)) return;
+        nw(VR_QUEUE_NUM, NET_Q);
+        naddr(VR_DESC_ADDR, vn.pa + desc);
+        naddr(VR_AVAIL_ADDR, vn.pa + av);
+        naddr(VR_USED_ADDR, vn.pa + used);
+        nw(VR_QUEUE_READY, 1);
+    }
+    struct net_desc *rx = (struct net_desc *)(vn.dma + NET_RX_DESC);
+    struct net_avail *av = (struct net_avail *)(vn.dma + NET_RX_AVAIL);
+    av->flags = 1; /* suppress IRQs, polled queue */
+    for (unsigned i = 0; i < NET_Q; i++) {
+        rx[i].addr = vn.pa + NET_RX_BASE + i * NET_BUF;
+        rx[i].len = NET_BUF;
+        rx[i].flags = 2; /* device writes */
+        av->ring[i] = (uint16_t)i;
+    }
+    av->idx = NET_Q;
+    nsync(NET_RX_DESC, NET_Q * sizeof(*rx));
+    nsync(NET_RX_AVAIL, sizeof(*av));
+    nsync(NET_RX_USED, sizeof(struct net_used));
+    struct net_avail *tav = (struct net_avail *)(vn.dma + NET_TX_AVAIL);
+    tav->flags = 1;
+    nsync(NET_TX_AVAIL, sizeof(*tav));
+    nsync(NET_TX_USED, sizeof(struct net_used));
+    nw(VR_STATUS, 15);
+    nw(VR_NOTIFY, 0);
+    lck_mtx_init(&vn.lock, &vn_grp, LCK_ATTR_NULL);
+    vn.enabled = true;
+    thread_t th;
+    kern_return_t result = kernel_thread_start(vn_worker, NULL, &th);
+    if (result == KERN_SUCCESS) {
+        thread_deallocate(th);
+        printf("SWEET NET: VirtIO Ethernet RX/TX queues ready\n");
+    } else {
+        vn.enabled = false;
+        printf("SWEET NET: worker startup failed %d\n", result);
+    }
+}
+#endif

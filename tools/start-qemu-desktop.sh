@@ -12,6 +12,7 @@ port="$(printenv SWEET_QEMU_PORT || true)"
 seconds="$(printenv SWEET_QEMU_SECONDS || true)"
 cpus="$(printenv SWEET_QEMU_CPUS || true)"
 debug_console="$(printenv SWEET_QEMU_DEBUG_CONSOLE || true)"
+network="$(printenv SWEET_QEMU_NETWORK || true)"
 adt_override="$(printenv SWEET_QEMU_ADT || true)"
 sample="$(printenv SWEET_QEMU_SAMPLE || true)"
 sample_delay="$(printenv SWEET_QEMU_SAMPLE_DELAY || true)"
@@ -25,6 +26,7 @@ base="$(printenv SWEET_QEMU_OUTPUT_BASE || true)"
 [[ -n "$seconds" ]] || seconds="1200"
 [[ -n "$cpus" ]] || cpus="1"
 [[ -n "$debug_console" ]] || debug_console="0"
+[[ -n "$network" ]] || network="0"
 # XNU proc_name uses MAXCOMLEN=16: MobileGestaltHelper is
 # "MobileGestaltHel" in the process sampler. Use its truncated name.
 [[ -n "$sample" ]] || sample="SpringBoard,lsd,MobileGestaltHel,backboardd"
@@ -97,6 +99,14 @@ else
 fi
 echo "QEMU logs and framebuffer: $run"
 echo "Browser sends VirtIO tablet events; iOS touchscreen functionality remains experimental."
+net_args=()
+if [[ "$network" == "1" ]]; then
+    if ! llvm-nm --defined-only "$kernel" | grep 'sweet_virtio_net_init' > /dev/null; then
+        echo "Kernel lacks VirtIO Ethernet; guest internet remains unavailable." >&2
+        exit 2
+    fi
+    net_args+=(--network)
+fi
 python3 "$repo/tools/qemu-sweet.py" "$run/payload.bin" "$run" \
-    --kernel "$kernel" "${disk_args[@]}" --tablet --cpus "$cpus" \
+    --kernel "$kernel" "${disk_args[@]}" --tablet "${net_args[@]}" --cpus "$cpus" \
     --secs "$seconds" --live-serial
