@@ -191,6 +191,40 @@ def qmp(sock_path, *cmds, pmemsave=None):
     return out
 
 
+def shutdown_qemu(proc, monitor):
+    """Flush QCOW2 metadata on a normal QEMU exit; SIGKILL is last resort.
+
+    The guest cannot perform a normal iOS poweroff yet, but QMP quit lets
+    QEMU close/flush its host-side image handles instead of being killed
+    while it may still be writing to the persistent overlay.
+    """
+    if proc.poll() is not None:
+        return
+    try:
+        with socket.socket(socket.AF_UNIX) as s:
+            s.settimeout(3)
+            s.connect(monitor)
+            f = s.makefile('rw')
+            f.readline()
+            f.write(json.dumps({'execute': 'qmp_capabilities'}) + '\n')
+            f.flush()
+            f.readline()
+            f.write(json.dumps({'execute': 'quit'}) + '\n')
+            f.flush()
+            f.close()
+        proc.wait(timeout=12)
+        return
+    except (OSError, ValueError, subprocess.TimeoutExpired) as ex:
+        print(f'[!] QMP quit unavailable: {ex}; trying SIGTERM', file=sys.stderr)
+    proc.terminate()
+    try:
+        proc.wait(timeout=8)
+    except subprocess.TimeoutExpired:
+        print('[!] QEMU failed graceful shutdown; sending SIGKILL', file=sys.stderr)
+        proc.kill()
+        proc.wait()
+
+
 def stream_serial_file(serial_path, file_pos, out_stream=sys.stdout):
     """Read newly appended content from serial.txt and write directly to stream."""
     if not os.path.exists(serial_path):
@@ -373,8 +407,7 @@ def main():
                         print('[*] SWEET console saved to ' + f'{out}/console.txt', file=sys.stderr)
                 except (OSError, subprocess.TimeoutExpired) as ex:
                     print(f'[!] SWEET console extraction unavailable: {ex}', file=sys.stderr)
-            p.kill()
-            p.wait()
+            shutdown_qemu(p, mon)
             raw = open(f'{out}/fb.raw', 'rb').read()
             write_png(f'{out}/fb.png', raw)
             result = {'status': 'not_decoded'}
@@ -400,8 +433,7 @@ def main():
     except KeyboardInterrupt:
         print('\n[!] Interrupted by user, stopping QEMU...', file=sys.stderr)
         if p and p.poll() is None:
-            p.kill()
-            p.wait()
+            shutdown_qemu(p, mon)
         return 130
     finally:
         ram_file = f'{out}/ram.bin'
