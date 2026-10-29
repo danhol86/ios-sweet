@@ -1,0 +1,64 @@
+diff --git a/bsd/dev/sweet_virtio_net.c b/bsd/dev/sweet_virtio_net.c
+--- a/bsd/dev/sweet_virtio_net.c
++++ b/bsd/dev/sweet_virtio_net.c
+@@ -206,6 +206,23 @@
+ }
+ static void vn_detach(ifnet_t ifp __unused) { }
+ 
++/* Configd may temporarily remove this unrecognized QEMU interface's
++ * gateway while enumerating physical IONetworkInterface services. */
++static int
++vn_install_default_route(void)
++{
++    struct sockaddr_in dst, gw, mask;
++    bzero(&dst, sizeof(dst));
++    bzero(&gw, sizeof(gw));
++    bzero(&mask, sizeof(mask));
++    dst.sin_len = gw.sin_len = mask.sin_len = sizeof(dst);
++    dst.sin_family = gw.sin_family = mask.sin_family = AF_INET;
++    gw.sin_addr.s_addr = htonl(0x0a000202);
++    return rtrequest(RTM_ADD, (struct sockaddr *)&dst,
++        (struct sockaddr *)&gw, (struct sockaddr *)&mask,
++        RTF_UP | RTF_GATEWAY | RTF_STATIC, NULL);
++}
++
+ static void
+ vn_configure(void)
+ {
+@@ -270,16 +287,7 @@
+     }
+     if (so != NULL) sock_close(so);
+     ifnet_set_flags(vn.ifp, IFF_UP | IFF_RUNNING, IFF_UP | IFF_RUNNING);
+-    struct sockaddr_in dst, gw, mask;
+-    bzero(&dst, sizeof(dst));
+-    bzero(&gw, sizeof(gw));
+-    bzero(&mask, sizeof(mask));
+-    dst.sin_len = gw.sin_len = mask.sin_len = sizeof(dst);
+-    dst.sin_family = gw.sin_family = mask.sin_family = AF_INET;
+-    gw.sin_addr.s_addr = htonl(0x0a000202); /* QEMU NAT gateway 10.0.2.2 */
+-    int route_error = rtrequest(RTM_ADD, (struct sockaddr *)&dst,
+-        (struct sockaddr *)&gw, (struct sockaddr *)&mask,
+-        RTF_UP | RTF_GATEWAY | RTF_STATIC, NULL);
++    int route_error = vn_install_default_route();
+     printf("SWEET NET: en0 10.0.2.15/24 configure=%d default-route=%d\n",
+         error, route_error);
+     vn.linked = true;
+@@ -391,8 +399,18 @@
+     vn_set_guest_clock();
+     vn_configure();
+     vn_probe_dns();
++    unsigned route_ticks = 0;
+     for (;;) {
+         vn_poll();
++        if (++route_ticks == 500) {
++            route_ticks = 0;
++            int error = vn_install_default_route();
++            if (error == 0) {
++                printf("SWEET NET: restored QEMU NAT default route\n");
++            } else if (error != EEXIST) {
++                printf("SWEET NET: default route refresh error %d\n", error);
++            }
++        }
+         clock_interval_to_deadline(10, NSEC_PER_MSEC, &deadline);
+         (void)assert_wait_deadline(&vn_wait_channel, THREAD_UNINT, deadline);
+         thread_block(THREAD_CONTINUE_NULL);

@@ -204,8 +204,14 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Start-IosSweet-W
 ~~~
 
 Do **not** use -Network on the existing verified 0086 kernel; the
-launcher correctly refuses it. Until an 0087 kernel compiles and Safari
-loads a real site, internet access is **not yet fixed**. A separate cloned
+launcher correctly refuses it. Kernel 0087 compiled successfully and a
+real iOS guest recognized VirtIO Ethernet, created en0=10.0.2.15/24,
+and initially added the default gateway. But configd subsequently
+**deleted the 0.0.0.0/0 route**; external internet is NOT yet verified.
+Kernel 0088 adds QEMU RTC support, Ethernet counters and an isolated DNS
+probe; kernel 0089 experiments with restoring the route after configd.
+Until Safari loads a public site, internet access is **not fixed**.
+A separate cloned
 guest image (`ios16-net-test.raw` and its QCOW2 overlay in WSL) has a
 synthetic en0 SystemConfiguration service configured for QEMU NAT;
 neither this disk nor any Apple firmware is committed to Git.
