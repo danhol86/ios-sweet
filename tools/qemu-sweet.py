@@ -230,6 +230,7 @@ def main():
     ap.add_argument('--live-serial', action='store_true', help='stream serial console output to stdout in real time')
     ap.add_argument('--disk', help='raw virtual iOS root disk, attached through VirtIO MMIO (rd=virtiodisk0)')
     ap.add_argument('--write-disk', action='store_true', help='persist changes to --disk (default: QEMU copy-on-write snapshot)')
+    ap.add_argument('--overlay', help='QCOW2 persistent writable overlay with --disk as its unchanged raw backing file')
     ap.add_argument('--tablet', action='store_true', help='attach a VirtIO tablet for future iOS touch input')
     ap.add_argument('--check-env', action='store_true', help='check QEMU installation and dependencies without running a payload')
     a = ap.parse_args()
@@ -250,10 +251,27 @@ def main():
 
     if a.write_disk and not a.disk:
         ap.error('--write-disk requires --disk')
+    if a.overlay and not a.disk:
+        ap.error('--overlay requires --disk')
+    if a.overlay and a.write_disk:
+        ap.error('--overlay and --write-disk cannot be used together')
     if not 1 <= a.cpus <= 8:
         ap.error('--cpus must be between 1 and 8')
     if a.disk and (not os.path.isfile(a.disk) or os.path.getsize(a.disk) % 512):
         ap.error('--disk must name an existing raw image with a size divisible by 512 bytes')
+    if a.overlay:
+        if not os.path.isfile(a.overlay):
+            ap.error('--overlay must be an existing QCOW2 file (create with qemu-img create -f qcow2 -F raw -b DISK OVERLAY)')
+        try:
+            info = json.loads(subprocess.check_output(
+                ['qemu-img', 'info', '--output=json', a.overlay], text=True))
+            backing = info.get('full-backing-filename') or info.get('backing-filename')
+            if info.get('format') != 'qcow2' or not backing or (
+                os.path.realpath(backing) != os.path.realpath(a.disk)
+            ) or info.get('backing-filename-format') != 'raw':
+                ap.error('--overlay must be QCOW2 with the exact --disk as RAW backing file')
+        except (subprocess.CalledProcessError, json.JSONDecodeError, FileNotFoundError) as e:
+            ap.error(f'cannot verify QCOW2 overlay: {e}')
 
     if not check_qemu_dependency(a.cpu):
         return 1
@@ -296,11 +314,16 @@ def main():
            '-device', f'loader,addr={STUB_PA:#x},cpu-num=0']
     if a.disk:
         disk = os.path.abspath(a.disk)
-        # snapshot=on is essential: never let a guest kernel under development
-        # modify the verified source HFS+ image unless explicitly requested.
-        cmd += ['-drive', f'if=none,id=iosroot,format=raw,file={disk},snapshot={"off" if a.write_disk else "on"}',
+        # Durable COW overlays retain iOS migration/install state between
+        # boots without changing the original verified HFS+ backing image.
+        target = os.path.abspath(a.overlay) if a.overlay else disk
+        fmt = 'qcow2' if a.overlay else 'raw'
+        persist = a.overlay is not None or a.write_disk
+        cmd += ['-drive', f'if=none,id=iosroot,format={fmt},file={target},snapshot={"off" if persist else "on"}',
                 '-device', 'virtio-blk-device,drive=iosroot']
-        print(f'[*] VirtIO MMIO disk: {disk} ({"persistent" if a.write_disk else "snapshot"})', file=sys.stderr)
+        print(f'[*] VirtIO MMIO disk: {target} '
+              f'({"writable QCOW2 overlay backed by " + disk if a.overlay else "persistent raw" if a.write_disk else "ephemeral snapshot"})',
+              file=sys.stderr)
     if a.tablet:
         cmd += ['-device', 'virtio-tablet-device,id=sweet-tablet']
         print('[*] VirtIO tablet added (requires an in-kernel input driver)', file=sys.stderr)
@@ -331,6 +354,25 @@ def main():
         if p.poll() is None:
             _, regs, *extra = qmp(mon, 'stop', 'info registers', *a.hmp, pmemsave=(FB_BASE, FB_STRIDE * FB_H, f'{out}/fb.raw'))
             open(f'{out}/regs.txt', 'w').write(regs + ''.join(f'\n(qemu) {c}\n{r}' for c, r in zip(a.hmp, extra)))
+            # Persist the genuine SWEET console before killing QEMU. This
+            # remains readable even if sweetfb_noconsole=1 and the framebuffer
+            # only contains the Apple boot logo. Nothing is written to the
+            # guest filesystem or to the original iOS source image.
+            if a.kernel and a.disk:
+                logcmd = [
+                    sys.executable, os.path.join(os.path.dirname(__file__), 'qemu-console-log.py'),
+                    out, '--kernel', os.path.abspath(a.kernel), '--tail', '0',
+                    '--payload', os.path.abspath(a.payload),
+                    '--output', f'{out}/console.txt',
+                ]
+                try:
+                    captured = subprocess.run(logcmd, capture_output=True, text=True, timeout=18)
+                    if captured.returncode:
+                        print('[!] SWEET console extraction failed: ' + captured.stderr[-500:], file=sys.stderr)
+                    else:
+                        print('[*] SWEET console saved to ' + f'{out}/console.txt', file=sys.stderr)
+                except (OSError, subprocess.TimeoutExpired) as ex:
+                    print(f'[!] SWEET console extraction unavailable: {ex}', file=sys.stderr)
             p.kill()
             p.wait()
             raw = open(f'{out}/fb.raw', 'rb').read()

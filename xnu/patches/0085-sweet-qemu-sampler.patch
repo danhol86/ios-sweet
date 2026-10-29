@@ -1,0 +1,15 @@
+diff --git a/bsd/dev/sweet_virtio.c b/bsd/dev/sweet_virtio.c
+--- a/bsd/dev/sweet_virtio.c
++++ b/bsd/dev/sweet_virtio.c
+@@ -524,6 +524,11 @@
+ 	vb.ready = true;
+ 	extern void sweet_virtio_input_init(void);
+ 	sweet_virtio_input_init();
++	/* QEMU roots do not run the physical UFS initialization hook, so
++	 * start the existing in-kernel process sampler independently. */
++	extern void sweet_sample_start(void);
++	sweet_sample_start();
++	printf("SWEET VIRTIO: process sampler enabled (sweetsample boot-arg)\n");
+ 	printf("SWEET VIRTIO: ready, %llu sectors (%llu MiB)\n",
+ 	    vb.sectors, vb.sectors / 2048);
+ 	return 0;
