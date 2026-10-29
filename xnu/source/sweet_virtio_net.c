@@ -15,6 +15,7 @@
 #include <sys/kpi_socket.h>
 #include <net/if.h>
 #include <net/if_types.h>
+#include <net/if_media.h>
 #include <net/ethernet.h>
 #include <net/if_ether.h>
 #include <net/ether_if_module.h>
@@ -190,9 +191,27 @@ vn_output(ifnet_t ifp, mbuf_t m)
 }
 
 static errno_t
-vn_ioctl(ifnet_t ifp, unsigned long cmd, void *data __unused)
+vn_ioctl(ifnet_t ifp, unsigned long cmd, void *data)
 {
     switch (cmd) {
+    case SIOCGIFMEDIA32:
+    case SIOCGIFMEDIA64: {
+        struct ifmediareq *req = (struct ifmediareq *)data;
+        user_addr_t list = (cmd == SIOCGIFMEDIA64)
+            ? ((struct ifmediareq64 *)req)->ifmu_ulist
+            : CAST_USER_ADDR_T(((struct ifmediareq32 *)req)->ifmu_ulist);
+        int media = IFM_ETHER | IFM_AUTO;
+        req->ifm_current = media;
+        req->ifm_active = IFM_ETHER | IFM_1000_T | IFM_FDX;
+        req->ifm_mask = 0;
+        req->ifm_status = IFM_AVALID | IFM_ACTIVE;
+        if (list != USER_ADDR_NULL && req->ifm_count > 0) {
+            req->ifm_count = 1;
+            return copyout(&media, list, sizeof(media));
+        }
+        req->ifm_count = 1;
+        return 0;
+    }
     case SIOCSIFADDR:
     case SIOCAIFADDR:
         ifnet_set_flags(ifp, IFF_UP, IFF_UP);
@@ -292,6 +311,8 @@ vn_configure(void)
     printf("SWEET NET: en0 10.0.2.15/24 configure=%d default-route=%d\n",
         error, route_error);
     vn.linked = true;
+    /* Notify configd of a usable Ethernet carrier link. */
+    dlil_post_msg(vn.ifp, KEV_DL_SUBCLASS, KEV_DL_LINK_ON, NULL, 0, FALSE);
 }
 
 static void

@@ -365,6 +365,9 @@ def main():
     if a.network:
         cmd += ['-nic', 'none', '-netdev', 'user,id=sweetnet,net=10.0.2.0/24',
                 '-device', 'virtio-net-device,netdev=sweetnet,mac=02:50:53:57:00:01']
+        # Local diagnostic PCAP: capture both sides of the VirtIO link.
+        # Keep captures private; they can contain guest browsing traffic.
+        cmd += ['-object', f'filter-dump,id=sweetdump,netdev=sweetnet,file={out}/network.pcap']
         print('[*] QEMU NAT and VirtIO MMIO Ethernet enabled', file=sys.stderr)
     if a.gdb:
         cmd += ['-S', '-gdb', 'tcp::1234']

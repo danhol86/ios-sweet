@@ -200,7 +200,7 @@ NAT device, and opt-in Windows launcher switch have been added in patch
 0087. The experimental invocation will be:
 
 ~~~powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Start-IosSweet-Windows.ps1 -KernelBuild 0087 -Network -Port 8103 -Disk /home/ios-sweet-test/ios16-net-test.raw -Overlay /home/ios-sweet-test/ios16-net-test-overlay.qcow2
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Start-IosSweet-Windows.ps1 -KernelBuild 0091 -Network -Port 8103 -Disk /home/ios-sweet-test/ios16-net-test.raw -Overlay /home/ios-sweet-test/ios16-net-test-overlay.qcow2
 ~~~
 
 Do **not** use -Network on the existing verified 0086 kernel; the
@@ -208,16 +208,38 @@ launcher correctly refuses it. Kernel 0087 compiled successfully and a
 real iOS guest recognized VirtIO Ethernet, created en0=10.0.2.15/24,
 and initially added the default gateway. But configd subsequently
 **deleted the 0.0.0.0/0 route**; external internet is NOT yet verified.
-Kernel 0088 adds QEMU RTC support, Ethernet counters and an isolated DNS
-probe; kernel 0089 experiments with restoring the route after configd.
-Until Safari loads a public site, internet access is **not fixed**.
+Kernel 0088 successfully initialized the iOS calendar from QEMU RTC
+and sent a 29-byte DNS query to 10.0.2.3, but no RX frames appeared.
+QEMU reported TX queue consumption while RX remained empty. The cause
+under investigation is an incorrect **10-byte VirtIO network header**:
+negotiating VIRTIO_F_VERSION_1 requires the **12-byte header**. The fix
+was committed at 410f312, changing both TX and RX in patch 0087.
+Kernel 0089 experiments with restoring the route after configd; the
+newest queued build combines this change with the 12-byte header.
+Adding an en0 record to NetworkInterfaces.plist on a secondary test
+clone did not prevent configd deleting the route. The secondary test
+image is separate from the working interactive installation.
+The combined kernel built from commit 410f312 passed macOS CI and booted
+as local kernel build 0090. Guest en0 received 10.0.2.15/24, configd's
+default-route deletion was repaired, and QEMU captured **both directions**
+of ARP traffic and an actual DNS response from 10.0.2.3 containing two
+answers for example.com. System time was corrected using QEMU RTC. The
+guest reached SpringBoard/backboardd and Safari could launch, but Safari
+still rendered a blank page and did not initiate an outbound web request
+after entering example.com accurately. The QEMU packet capture is stored
+locally as network.pcap in each run folder, never committed or uploaded.
+The new 0090-sweet-virtio-net-link-state.patch tests whether providing
+IFMEDIA active status and a KEV_DL_LINK_ON notification makes iOS
+network reachability services acknowledge the interface. Until Safari
+loads a public HTTP and HTTPS site, **full internet access is not fixed**.
 A separate cloned
 guest image (`ios16-net-test.raw` and its QCOW2 overlay in WSL) has a
 synthetic en0 SystemConfiguration service configured for QEMU NAT;
 neither this disk nor any Apple firmware is committed to Git.
 
-Safari's UI, address bar and native keyboard work, but the running
-Windows/QEMU iOS guest **does not have working internet access**.
+Original diagnosis before experimental networking kernel builds:
+Safari's UI, address bar and native keyboard worked, but the original
+Windows/QEMU iOS guest did not have internet access.
 Windows HTTPS to example.com returned HTTP 200, and WSL2 has an active
 eth0/default route and working DNS. QMP info network reveals QEMU's
 automatic user-mode NAT (10.0.2.0/24) with a **virtio-net-pci** card.
