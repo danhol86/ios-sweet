@@ -13,6 +13,8 @@ seconds="$(printenv SWEET_QEMU_SECONDS || true)"
 cpus="$(printenv SWEET_QEMU_CPUS || true)"
 debug_console="$(printenv SWEET_QEMU_DEBUG_CONSOLE || true)"
 sample="$(printenv SWEET_QEMU_SAMPLE || true)"
+sample_delay="$(printenv SWEET_QEMU_SAMPLE_DELAY || true)"
+sample_interval="$(printenv SWEET_QEMU_SAMPLE_INTERVAL || true)"
 base="$(printenv SWEET_QEMU_OUTPUT_BASE || true)"
 [[ -n "$kernel" ]] || kernel="$repo/xnu/out-qemu/kernel.development.sweet"
 [[ -n "$disk" ]] || disk="/home/ios-sweet-test/ios16-root-bulk.img"
@@ -23,6 +25,8 @@ base="$(printenv SWEET_QEMU_OUTPUT_BASE || true)"
 [[ -n "$cpus" ]] || cpus="1"
 [[ -n "$debug_console" ]] || debug_console="0"
 [[ -n "$sample" ]] || sample="SpringBoard,backboardd,datamigrator"
+[[ -n "$sample_delay" ]] || sample_delay="12"
+[[ -n "$sample_interval" ]] || sample_interval="25"
 [[ -n "$base" ]] || base="/home/ios-sweet-test"
 run="$base/desktop-qemu-$(date -u +%Y%m%d-%H%M%S)"
 
@@ -66,7 +70,7 @@ if [[ "$cpus" != "1" ]]; then
     smp_flag="sweet_qemu_smp=1"
 fi
 python3 "$repo/tools/mkpayload.py" "$kernel" "$run/qemu.adt" "$run/payload.bin" \
-    --cmdline "debug=0xc serial=3 cpus=$cpus keepsyms=1 -enable_kprintf_spam -noprogress rd=virtiodisk0 unentitled_ios_sim_launch=1 rootrw=1 launchd_unsecure_cache=1 ignition_level=1 wdt_test=no_user_checkin wdt=-1 sweetsample=$sample $fbarg $smp_flag"
+    --cmdline "debug=0xc serial=3 cpus=$cpus keepsyms=1 -enable_kprintf_spam -noprogress rd=virtiodisk0 unentitled_ios_sim_launch=1 rootrw=1 launchd_unsecure_cache=1 ignition_level=1 wdt_test=no_user_checkin wdt=-1 sweetsample=$sample sweetsample_delay=$sample_delay sweetsample_interval=$sample_interval $fbarg $smp_flag"
 
 python3 "$repo/tools/qemu-live-screen.py" "$run" --enable-input --port "$port" > "$run/viewer.log" 2>&1 &
 viewer_pid=$!

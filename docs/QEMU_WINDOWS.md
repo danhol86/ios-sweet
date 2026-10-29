@@ -27,8 +27,15 @@ This is a development environment, not an established iPhone simulator.
 In PowerShell:
 
 ~~~powershell
-wsl -d Ubuntu-24.04 -- env SWEET_QEMU_KERNEL=/mnt/c/Users/danho/Desktop/ios-sweet/xnu/out-qemu-0084/kernel.development.sweet SWEET_QEMU_CPUS=4 bash /mnt/c/Users/danho/Desktop/ios-sweet/tools/start-qemu-desktop.sh
+& 'C:\Users\danho\Desktop\ios-sweet\tools\Start-IosSweet-Windows.ps1' -Cpus 4 -KernelBuild 0084
 ~~~
+
+The Windows launcher starts the Linux VM and opens the framebuffer viewer.
+Use -Ephemeral for isolated disk tests, -Seconds 600 to change the runtime,
+or -KernelBuild 0085 to select a newer verified kernel once available.
+If Windows execution policy blocks the script, launch it explicitly with
+the per-command powershell -ExecutionPolicy Bypass -File option rather
+than changing machine-wide settings.
 
 Open **http://127.0.0.1:8099/** in a Windows browser. The script starts ARM64
 QEMU with the verified image attached through VirtIO and a separate local
@@ -81,6 +88,12 @@ to discard guest changes in an old-style snapshot test. Do not use
   launchd lookup failure (the intentionally empty image lacks launchd).
 - Four-vCPU real-iOS boot verified root HFS+ mount, SpringBoard and
   backboardd starts, and live guest logging under the persistent overlay.
+- Four-vCPU guest logs prove SpringBoard and backboardd are running;
+  datamigrator exits normally (exit code 0). The boot is not interactive.
+- Separate isolated HFS+ clone test seeded mobileactivationd's missing
+  -ActivationState and -DataMigrationCompleted values, verified with
+  fsck.hfsplus. The final framebuffer remained at the Apple logo, so
+  these flags were NOT applied to the baseline.
 - tools/qemu-console-log.py reads the kernel's 4 MiB console ring via QMP.
   The QEMU runner now saves run/console.txt automatically on normal exit,
   even with the Apple logo obscuring console text.
@@ -95,7 +108,13 @@ to discard guest changes in an old-style snapshot test. Do not use
   is unchanged; QEMU requires explicit sweet_qemu_smp=1 boot arg.
 - 0085: QEMU-only call to the existing process stack sampler, to investigate
   why SpringBoard/backboardd remain on the Apple boot logo. Patch written,
-  not yet compiled or verified.
+  not yet verified by a real boot. The first macos-14 CI attempt was
+  cancelled during GitHub's 29 October 2026 runner-image retirement
+  brownout. A macos-15 build was dispatched as run 40935552043;
+  inspect its actual compile logs and artifact before using it.
+- 0086: Configurable sampler delays, defaulting to physical Redmi timings.
+  Launcher sets faster QEMU diagnostic boot arguments when this patch is
+  compiled; unverified pending the 0085 macOS build result.
 - The original Redmi UFS and physical touch paths remain unchanged.
 
 ## Outstanding issues
