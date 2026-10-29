@@ -44,7 +44,8 @@ extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
 #define NET_VERSION    2u
 #define NET_Q          8u
 #define NET_BUF        2048u
-#define NET_HDR        10u
+/* VirtIO 1.0 always uses the 12-byte net header, even without MRG_RXBUF. */
+#define NET_HDR        12u
 #define NET_RX_BASE    0x3000u
 #define NET_TX_BASE    0x13000u
 #define NET_DMA_SIZE   0x20000u

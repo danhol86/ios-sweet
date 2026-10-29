@@ -72,7 +72,7 @@ new file mode 100644
 +#define NET_VERSION    2u
 +#define NET_Q          8u
 +#define NET_BUF        2048u
-+#define NET_HDR        10u
++#define NET_HDR        12u
 +#define NET_RX_BASE    0x3000u
 +#define NET_TX_BASE    0x13000u
 +#define NET_DMA_SIZE   0x20000u
