@@ -66,10 +66,14 @@ def main():
         assert q.readl(8) == 2
         q.writel(0x70,0)
         q.writel(0x70,3)
+        q.writel(0x14,0)
+        low_features=q.readl(0x10)
+        print("low features:",hex(low_features))
+        assert low_features & (1 << 9), "VirtIO disk lacks FLUSH support"
         q.writel(0x14,1)
         print("high features:",hex(q.readl(0x10)))
         assert q.readl(0x10)&1
-        q.writel(0x24,0);q.writel(0x20,0)
+        q.writel(0x24,0);q.writel(0x20,1 << 9)
         q.writel(0x24,1);q.writel(0x20,1)
         q.writel(0x70,11)
         assert q.readl(0x70)&8
@@ -88,18 +92,24 @@ def main():
         print("capacity sectors",capacity)
         assert capacity*512==os.path.getsize(a.disk)
         next_idx=0
-        def io(sector, write=False, blob=None):
+        def io(sector, write=False, blob=None, flush=False):
             nonlocal next_idx
-            q.memwrite(HEADER,struct.pack("<IIQ",1 if write else 0,0,sector))
+            q.memwrite(HEADER,struct.pack("<IIQ",4 if flush else (1 if write else 0),0,sector))
             if write:
                 assert blob is not None and len(blob)==512
                 q.memwrite(DATA,blob)
             q.memwrite(STATUS,b"\xff")
-            q.memwrite(DESC,b"".join((
-                struct.pack("<QIHH",HEADER,16,1,1),
-                struct.pack("<QIHH",DATA,512,1 if write else 3,2),
-                struct.pack("<QIHH",STATUS,1,2,0)
-            )))
+            if flush:
+                q.memwrite(DESC,b"".join((
+                    struct.pack("<QIHH",HEADER,16,1,1),
+                    struct.pack("<QIHH",STATUS,1,2,0)
+                )))
+            else:
+                q.memwrite(DESC,b"".join((
+                    struct.pack("<QIHH",HEADER,16,1,1),
+                    struct.pack("<QIHH",DATA,512,1 if write else 3,2),
+                    struct.pack("<QIHH",STATUS,1,2,0)
+                )))
             q.memwrite(AVAIL+4+2*(next_idx%8),struct.pack("<H",0))
             next_idx+=1
             q.memwrite(AVAIL+2,struct.pack("<H",next_idx))
@@ -129,6 +139,8 @@ def main():
         payload=(b"ios-sweet-virtio-qtest"*24)[:512].ljust(512,b"!")
         io(test_sector,write=True,blob=payload)
         assert io(test_sector)==payload
+        io(0,flush=True)
+        print("VIRTIO_QTEST_FLUSH_OK")
         with open(a.disk,"rb") as f:
             f.seek(test_sector*512)
             assert f.read(512)==original, "Source image changed!"

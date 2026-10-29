@@ -1,63 +1,92 @@
-# Windows / WSL2 QEMU development (experimental)
+# Windows / WSL2 QEMU development
 
-This is **not yet an iOS simulator**. The Redmi Note 10 Pro build runs on a physical device; QEMU has a working XNU kernel test harness but no established interactive iOS GUI.
+Status on **2026-10-29**: Real iOS 16.7.16 boots from a disk-backed
+VirtIO HFS+ image, executes Apple launchd and starts many daemons
+(including backboardd and securityd). The QEMU framebuffer renders the
+Apple boot logo. **The iOS home screen has NOT been reached or verified.**
+This is a development environment, not an established iPhone simulator.
 
-## Environment used, 2026-10-29
+## Prepared environment
 
-- Windows 11 Pro, Intel Core Ultra 7 265KF, 32 GB RAM.
-- Ubuntu 24.04 WSL2, QEMU 8.2.2, Python 3, LLVM.
-- Public upstream macOS Actions kernel 39158169212, verified against SHA256SUMS (no kernel rebuild required for unmodified QEMU tests).
-- Apple's genuine iPhone X iOS 16.7.16 (20H392) OS, SystemOS, and AppOS images; independently CRC checked. Apple artifacts and resulting images are deliberately ignored by git.
-- Built a 16 GiB HFS+ disk with upstream startup tweaks; fsck.hfsplus -f -n reports OK.
-- Kernel reached 'Process 1 exec of /sbin/launchd' using a disposable 64 MiB HFS+ ramdisk deliberately lacking that executable.
+- Windows 11 with WSL2 Ubuntu 24.04; QEMU 8.2.2.
+- Kernel built with patch 0082-sweet-qemu-virtio-blk.patch by macOS Actions
+  run 40924239864 in fork danhol86/ios-sweet. SHA256 of verified artifact:
+  41c6b43b2f9303f23d8e20a65cfaa8b47230070a919101f24f59cfd7a3fe305d.
+  Symbol _sweet_virtio_rootdev verified with llvm-nm.
+- Kernel installed at xnu/out-qemu/kernel.development.sweet (gitignored).
+- Official Apple iPhone X iOS 16.7.16 (20H392) OS, SystemOS, AppOS, and
+  device-tree images extracted and CRC-checked. Proprietary Apple images are
+  kept outside the repository.
+- Full root HFS+ image at /home/ios-sweet-test/ios16-root-bulk.img (16 GiB
+  virtual, ~12 GiB physical usage), includes dyld cache, SpringBoard,
+  launchd and keybag; fsck.hfsplus confirms it is valid.
 
-## Disk-backed experiment
+## Start the experimental desktop from Windows
 
-xnu/patches/0082-sweet-qemu-virtio-blk.patch introduces a QEMU-only, explicitly opt-in VirtIO MMIO block root (rd=virtiodisk0). The physical Redmi UFS path is unchanged.
+In PowerShell:
 
-- Polls QEMU's VirtIO MMIO transports at 0x0a000000..0x0a003fff and locates block device ID 2, rather than assuming the first slot.
-- Uses 512-byte logical sectors, a polled split ring and a 64 KiB bounce buffer. Supports reads and writes; guest writes are directed to QEMU's temporary snapshot by default.
-- QEMU qtest confirmed the device at 0x0a003e00 with magic 0x74726976, ID 2.
-- QEMU defaults to the *legacy* VirtIO MMIO transport. The runner explicitly enables
-  modern version 2 using the QEMU option virtio-mmio.force-legacy=false.
-- tools/qemu-virtio-smoke.py verifies an actual 512-byte sector read against
-  the raw disk, and a guest write/readback in snapshot mode while confirming
-  the original HFS+ image has not changed.
-- **This kernel driver is experimental.** Its presence in a patch is not proof that the kernel builds or that iOS reaches the home screen. Check the actual CI result and boot log before saying it works.
-
-Use the high-memory Apple device tree so the guest has room for iOS userland:
-
-~~~sh
-cd /mnt/c/Users/danho/Desktop/ios-sweet
-python3 tools/mkadt.py /home/ios-sweet-test/qemu-highmem.adt --qemu --highmem
-python3 tools/mkpayload.py xnu/out/kernel.development.sweet \
-    /home/ios-sweet-test/qemu-highmem.adt /home/ios-sweet-test/payload-qemu-disk.bin \
-    --cmdline 'debug=0xc serial=3 cpus=1 keepsyms=1 -enable_kprintf_spam rd=virtiodisk0 rootrw=1 launchd_unsecure_cache=1 ignition_level=1 wdt=-1 sweetfb_noconsole=0'
-python3 tools/qemu-sweet.py /home/ios-sweet-test/payload-qemu-disk.bin \
-    /home/ios-sweet-test/qemu-disk-test \
-    --kernel xnu/out/kernel.development.sweet \
-    --disk /home/ios-sweet-test/ios16-root-bulk.img --secs 120
+~~~powershell
+wsl -d Ubuntu-24.04 -- bash /mnt/c/Users/danho/Desktop/ios-sweet/tools/start-qemu-desktop.sh
 ~~~
 
-**The kernel binary in these commands must have been rebuilt with patch 0082**; the upstream kernel artifact predates that patch and has no VirtIO root driver. QEMU defaults to snapshot=on so writes do not modify the verified HFS+ root. Only use --write-disk to persist writes when intentionally testing a disposable disk copy.
+Open **http://127.0.0.1:8099/** in a Windows browser. The script starts ARM64
+QEMU with the verified image attached through VirtIO and a separate local
+browser framebuffer viewer. The viewer refreshes the actual guest framebuffer
+through QMP. It listens on 127.0.0.1 only. Stop the command to end the VM
+and viewer.
 
-View a running VM from Windows using the separate local display viewer:
+For kernel-console debugging instead of the Apple boot logo:
 
-~~~sh
-python3 tools/qemu-live-screen.py /home/ios-sweet-test/qemu-disk-test --port 8099
+~~~powershell
+wsl -d Ubuntu-24.04 -- env SWEET_QEMU_DEBUG_CONSOLE=1 SWEET_QEMU_SECONDS=180 bash /mnt/c/Users/danho/Desktop/ios-sweet/tools/start-qemu-desktop.sh
 ~~~
 
-Open http://127.0.0.1:8099/ in Windows. The viewer polls guest framebuffer
-snapshots while the QEMU session remains active, with no external listeners.
-It has been tested from a Windows HTTP client (HTTP 200 with real XNU boot
-console pixels), but **it does not yet send mouse or touch input to iOS**.
+Environment overrides: SWEET_QEMU_KERNEL (kernel path as seen from WSL),
+SWEET_QEMU_DISK (raw HFS+ image), SWEET_QEMU_PORT (default 8099),
+SWEET_QEMU_SECONDS (default 1200), and SWEET_QEMU_OUTPUT_BASE.
 
-## Remaining work
+**Safety:** The QEMU disk uses snapshot mode by default; guest writes are
+discarded, protecting the verified source. Never use --write-disk on the
+original image during experimental kernel testing.
 
-1. Rebuild with patch 0082 on macOS runner and fix any patch/compile errors.
-2. Test VirtIO detection, sector reading, HFS+ mount and launchd on the rebuilt kernel, with real framebuffer/log evidence.
-3. Diagnose userspace failures (shared cache, initialization, virtual hardware). The sweet-root-tweaks.py run warned that its optional mobileactivationd system container was absent.
-4. Implement live framebuffer presentation (VNC or web) plus an input channel that provides actual IOS HID touch and keys. The stock QEMU helper captures post-run PNGs; it cannot operate SpringBoard interactively.
-5. Report reproducible results and do not confuse an XNU console framebuffer with the iOS home screen.
+## Confirmed tests
 
-No requirement to run or modify a physical Redmi device for this experiment.
+- tools/qemu-virtio-smoke.py IMAGE: VirtIO 2 MMIO device found at
+  0x0a003e00, real HFS+ sector read matches source byte-for-byte; a
+  temporary guest write/readback plus FLUSH succeeds; original image
+  unchanged by snapshot mode.
+- Live browser viewer returned real framebuffer PNG to both WSL and Windows
+  HTTP clients (HTTP 200).
+- Browser pointer POST /touch sent QMP input events to virtio-tablet-device
+  (HTTP 204). QEMU event-queue test confirms EV_ABS X/Y, BTN_LEFT and EV_SYN.
+  This is NOT proof that the iOS guest consumes touch yet.
+- QEMU disk-based kernel with no unentitled_ios_sim_launch=1 boot arg
+  reached launchd but panicked unexpectedly (CS_KILLED).
+- After adding the required boot arg, launchd entered ondemand mode,
+  multiple iOS daemons started, and a 100-second boot finished with
+  **no kernel panic**; the longer graphical run drew an Apple logo.
+  Project's earlier physical-phone boot history also documents the flag.
+
+## In-progress kernel changes
+
+- 0082: Disk-backed VirtIO BSD root rd=virtiodisk0 -- **compiled and booted**.
+- 0083: Experimental VirtIO tablet -> sweet_hid_touch() input queue,
+  and correct block FLUSH ioctl (DKIOCSYNCHRONIZE / DKIOCSYNCHRONIZECACHE).
+  The host protocols are tested; the kernel patch is not validated by CI or
+  a live boot until the next build.
+- The original Redmi UFS and physical touch paths remain unchanged.
+
+## Outstanding issues
+
+1. Build patch 0083 on macOS; verify it was actually applied and compiled
+   (not merely a green workflow). Verify input and disk FLUSH in QEMU.
+2. Diagnose Apple's graphical service initialization. Backboardd repeatedly
+   requests IOAcceleratorES but no GPU service exists in QEMU. The existing
+   phone port uses CPU software rendering. A GUI home screen is not yet shown.
+3. Verify the last boot stages, startup times and whether SpringBoard actually
+   creates its framebuffer surface. Longer guest runs may be needed.
+4. User interaction is conditional on iOS HID delivery, not merely QMP
+   accepting tablet events.
+
+Do not claim the project is a fully functional iOS simulator until a real
+interactive SpringBoard and app launch have been demonstrated.

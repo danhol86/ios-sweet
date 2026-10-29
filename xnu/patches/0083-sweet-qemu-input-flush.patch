@@ -1,0 +1,421 @@
+diff --git a/bsd/conf/files b/bsd/conf/files
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -106,6 +106,7 @@
+ bsd/dev/memdev.c			standard
+ bsd/dev/sweet_ufs.c			standard
+ bsd/dev/sweet_virtio.c			standard
++bsd/dev/sweet_virtio_input.c			standard
+ bsd/dev/sweet_sample.c			standard
+ bsd/dev/sweet_keys.c			standard
+ bsd/dev/sweet_touch.c			standard
+diff --git a/bsd/dev/sweet_virtio.c b/bsd/dev/sweet_virtio.c
+--- a/bsd/dev/sweet_virtio.c
++++ b/bsd/dev/sweet_virtio.c
+@@ -37,6 +37,7 @@
+ #define VIRTIO_BLOCK        2u
+ #define VIRTIO_VERSION      2u
+ #define VIRTIO_F_VERSION_1  1u /* feature bit 32, in high dword */
++#define VIRTIO_BLK_F_FLUSH  (1u << 9) /* low feature dword */
+ 
+ #define VREG_MAGIC          0x000
+ #define VREG_VERSION        0x004
+@@ -118,6 +119,7 @@
+ 	int bmajor, cmajor;
+ 	dev_t bdev;
+ 	bool ready;
++	bool supports_flush;
+ } vb;
+ 
+ static LCK_GRP_DECLARE(vblk_grp, "sweet_virtio");
+@@ -226,6 +228,63 @@
+ 	return 0;
+ }
+ 
++
++static int
++vblk_flush(void)
++{
++	struct virtq_desc *desc = (struct virtq_desc *)(vb.dma + DMA_DESC);
++	struct virtq_avail *avail = (struct virtq_avail *)(vb.dma + DMA_AVAIL);
++	struct virtq_used *used = (struct virtq_used *)(vb.dma + DMA_USED);
++	struct virtio_blk_req *req = (struct virtio_blk_req *)(vb.dma + DMA_REQUEST);
++	volatile uint8_t *status = (volatile uint8_t *)(vb.dma + DMA_RESULT);
++	uint16_t prev_idx = vb.last_used;
++
++	req->type = 4; /* VIRTIO_BLK_T_FLUSH */
++	req->reserved = 0;
++	req->sector = 0;
++	*status = 0xff;
++	desc[0].addr = vb.dma_pa + DMA_REQUEST;
++	desc[0].len = sizeof(*req);
++	desc[0].flags = VRING_NEXT;
++	desc[0].next = 1;
++	desc[1].addr = vb.dma_pa + DMA_RESULT;
++	desc[1].len = 1;
++	desc[1].flags = VRING_WRITE;
++	desc[1].next = 0;
++	vblk_sync(DMA_DESC, 2 * sizeof(*desc));
++	vblk_sync(DMA_REQUEST, sizeof(*req));
++	vblk_sync(DMA_RESULT, 1);
++	avail->ring[avail->idx % QUEUE_SIZE] = 0;
++	vblk_sync(DMA_AVAIL, sizeof(*avail));
++	__builtin_arm_dsb(0xf);
++	avail->idx++;
++	vblk_sync(DMA_AVAIL, sizeof(*avail));
++	__builtin_arm_dsb(0xf);
++	vblk_wr(VREG_QUEUE_NOTIFY, 0);
++	uint64_t timeout, deadline;
++	nanoseconds_to_absolutetime(IO_TIMEOUT_NS, &timeout);
++	deadline = mach_absolute_time() + timeout;
++	for (;;) {
++		vblk_sync(DMA_USED, sizeof(*used));
++		if (used->idx != prev_idx) {
++			break;
++		}
++		if (mach_absolute_time() > deadline) {
++			printf("SWEET VIRTIO: FLUSH timed out\n");
++			return ETIMEDOUT;
++		}
++		delay(1);
++	}
++	vb.last_used = used->idx;
++	vblk_wr(VREG_IRQ_ACK, vblk_rd(VREG_IRQ_STATUS));
++	vblk_sync(DMA_RESULT, 1);
++	if (*status != 0) {
++		printf("SWEET VIRTIO: FLUSH status %u\n", *status);
++		return EIO;
++	}
++	return 0;
++}
++
+ static int
+ vblk_open(__unused dev_t dev, __unused int flags, __unused int devtype,
+     __unused struct proc *proc)
+@@ -292,6 +351,17 @@
+ 	uint64_t *v64 = (uint64_t *)data;
+ 
+ 	switch (cmd) {
++	case DKIOCSYNCHRONIZE:
++	case DKIOCSYNCHRONIZECACHE: {
++		int error;
++		if (!vb.supports_flush) {
++			return ENOTSUP;
++		}
++		lck_mtx_lock(&vblk_lock);
++		error = vblk_flush();
++		lck_mtx_unlock(&vblk_lock);
++		return error;
++	}
+ 	case DKIOCGETBLOCKSIZE:
+ 	case DKIOCGETPHYSICALBLOCKSIZE:
+ 		*v32 = SECTOR_SIZE;
+@@ -391,6 +461,9 @@
+ 
+ 	vblk_wr(VREG_STATUS, 0);
+ 	vblk_wr(VREG_STATUS, VIRTIO_ACK | VIRTIO_DRIVER);
++	vblk_wr(VREG_FEATURES_SEL, 0);
++	uint32_t low = vblk_rd(VREG_FEATURES);
++	vb.supports_flush = (low & VIRTIO_BLK_F_FLUSH) != 0;
+ 	vblk_wr(VREG_FEATURES_SEL, 1);
+ 	uint32_t high = vblk_rd(VREG_FEATURES);
+ 	if (!(high & VIRTIO_F_VERSION_1)) {
+@@ -398,7 +471,7 @@
+ 		return ENOTSUP;
+ 	}
+ 	vblk_wr(VREG_DRIVER_SEL, 0);
+-	vblk_wr(VREG_DRIVER_FEATURES, 0);
++	vblk_wr(VREG_DRIVER_FEATURES, vb.supports_flush ? VIRTIO_BLK_F_FLUSH : 0);
+ 	vblk_wr(VREG_DRIVER_SEL, 1);
+ 	vblk_wr(VREG_DRIVER_FEATURES, VIRTIO_F_VERSION_1);
+ 	vblk_wr(VREG_STATUS, VIRTIO_ACK | VIRTIO_DRIVER | VIRTIO_FEATURES_OK);
+@@ -449,6 +522,8 @@
+ 	devfs_make_node(makedev(vb.cmajor, 0), DEVFS_CHAR,
+ 	    UID_ROOT, GID_OPERATOR, 0640, "rvirtiodisk0");
+ 	vb.ready = true;
++	extern void sweet_virtio_input_init(void);
++	sweet_virtio_input_init();
+ 	printf("SWEET VIRTIO: ready, %llu sectors (%llu MiB)\n",
+ 	    vb.sectors, vb.sectors / 2048);
+ 	return 0;
+diff --git a/bsd/dev/sweet_virtio_input.c b/bsd/dev/sweet_virtio_input.c
+new file mode 100644
+--- /dev/null
++++ b/bsd/dev/sweet_virtio_input.c
+@@ -0,0 +1,276 @@
++/*
++ * SWEET QEMU VirtIO MMIO tablet driver.
++ *
++ * QEMU virtio-tablet-device -> HID Digitizer. Polls a 32-entry VirtIO
++ * input event queue rather than requiring interrupts. Started only when
++ * rd=virtiodisk0 succeeds: physical Redmi UFS and touch are unchanged.
++ * The user must attach --tablet in the QEMU launcher.
++ */
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++#include <sys/param.h>
++#include <sys/systm.h>
++#include <kern/locks.h>
++#include <kern/clock.h>
++#include <kern/thread.h>
++#include <kern/sched_prim.h>
++#include <machine/machine_routines.h>
++#include <arm/caches_internal.h>
++#include <vm/pmap.h>
++#include <vm/vm_kern.h>
++#include <libkern/libkern.h>
++
++extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
++extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
++extern void sweet_hid_touch(int finger, int down, int x, int y);
++
++#define IO_BASE          0x0a000000u
++#define IO_WINDOW        0x4000u
++#define IO_STRIDE        0x200u
++#define IO_MAGIC         0x74726976u
++#define IO_INPUT_ID      18u
++#define IO_VERSION       2u
++
++#define IO_REG_MAGIC          0x000
++#define IO_REG_VERSION        0x004
++#define IO_REG_DEVICE         0x008
++#define IO_REG_FEATURES       0x010
++#define IO_REG_FEATURES_SEL   0x014
++#define IO_REG_DRIVER_FEATURES 0x020
++#define IO_REG_DRIVER_SEL     0x024
++#define IO_REG_QUEUE_SEL      0x030
++#define IO_REG_QUEUE_MAX      0x034
++#define IO_REG_QUEUE_NUM      0x038
++#define IO_REG_QUEUE_READY    0x044
++#define IO_REG_QUEUE_NOTIFY   0x050
++#define IO_REG_STATUS         0x070
++#define IO_REG_DESC_LO        0x080
++#define IO_REG_AVAIL_LO       0x090
++#define IO_REG_USED_LO        0x0a0
++
++#define IO_QUEUE         32u
++#define IO_DESC          0x0000u
++#define IO_AVAIL         0x1000u
++#define IO_USED          0x2000u
++#define IO_EVENTS        0x3000u
++#define IO_DMA_SIZE      0x4000u
++
++/* VirtIO input uses Linux evdev codes. */
++#define EV_SYN  0u
++#define EV_KEY  1u
++#define EV_ABS  3u
++#define ABS_X   0u
++#define ABS_Y   1u
++#define BTN_LEFT 272u
++#define BTN_TOUCH 330u
++
++struct iodesc {
++	uint64_t addr;
++	uint32_t len;
++	uint16_t flags, next;
++};
++struct ioavail {
++	uint16_t flags, idx;
++	uint16_t ring[IO_QUEUE];
++	uint16_t used_event;
++};
++struct ioused_elem {
++	uint32_t id, len;
++};
++struct ioused {
++	uint16_t flags;
++	volatile uint16_t idx;
++	struct ioused_elem ring[IO_QUEUE];
++	uint16_t avail_event;
++};
++struct ioevent {
++	uint16_t type, code;
++	uint32_t value;
++};
++
++static struct {
++	vm_offset_t regs, dma;
++	uint64_t pa;
++	uint16_t used_idx;
++	int x, y;
++	bool pressed, was_pressed, dirty, running;
++} it;
++
++static int io_sleep_chan;
++
++static inline uint32_t
++iord(unsigned off)
++{
++	return *(volatile uint32_t *)(it.regs + off);
++}
++static inline void
++iowr(unsigned off, uint32_t val)
++{
++	*(volatile uint32_t *)(it.regs + off) = val;
++}
++static void
++iosync(uint32_t off, uint32_t len)
++{
++	flush_dcache64((addr64_t)(it.pa + off), len, TRUE);
++}
++static void
++ioaddr(unsigned off, uint64_t pa)
++{
++	iowr(off, (uint32_t)pa);
++	iowr(off + 4, (uint32_t)(pa >> 32));
++}
++
++static void
++io_process(const struct ioevent *event)
++{
++	if (event->type == EV_ABS) {
++		int pos = (int)(MIN(event->value, 32767u));
++		if (event->code == ABS_X) {
++			it.x = pos * 1079 / 32767;
++			it.dirty = true;
++		} else if (event->code == ABS_Y) {
++			it.y = pos * 2399 / 32767;
++			it.dirty = true;
++		}
++	} else if (event->type == EV_KEY &&
++	    (event->code == BTN_LEFT || event->code == BTN_TOUCH)) {
++		bool pressed = event->value != 0;
++		if (pressed != it.pressed) {
++			it.pressed = pressed;
++			it.dirty = true;
++		}
++	} else if (event->type == EV_SYN && event->code == 0) {
++		if (it.dirty && (it.pressed || it.was_pressed)) {
++			sweet_hid_touch(0, it.pressed ? 1 : 0, it.x, it.y);
++		}
++		it.was_pressed = it.pressed;
++		it.dirty = false;
++	}
++}
++
++static void
++io_sleep(void)
++{
++	uint64_t deadline;
++	clock_interval_to_deadline(16, NSEC_PER_MSEC, &deadline);
++	(void)assert_wait_deadline(&io_sleep_chan, THREAD_UNINT, deadline);
++	thread_block(THREAD_CONTINUE_NULL);
++}
++
++static void
++io_thread(void *arg, wait_result_t result)
++{
++	(void)arg;
++	(void)result;
++	struct ioused *used = (struct ioused *)(it.dma + IO_USED);
++	struct ioavail *avail = (struct ioavail *)(it.dma + IO_AVAIL);
++	for (;;) {
++		bool requeued = false;
++		iosync(IO_USED, sizeof(*used));
++		while (it.used_idx != used->idx) {
++			uint32_t id = used->ring[it.used_idx % IO_QUEUE].id;
++			if (id < IO_QUEUE) {
++				struct ioevent *event =
++				    (struct ioevent *)(it.dma + IO_EVENTS + id * sizeof(struct ioevent));
++				iosync(IO_EVENTS + id * sizeof(*event), sizeof(*event));
++				io_process(event);
++				avail->ring[avail->idx % IO_QUEUE] = (uint16_t)id;
++				__builtin_arm_dsb(0xf);
++				avail->idx++;
++				requeued = true;
++			}
++			it.used_idx++;
++		}
++		if (requeued) {
++			iosync(IO_AVAIL, sizeof(*avail));
++			__builtin_arm_dsb(0xf);
++			iowr(IO_REG_QUEUE_NOTIFY, 0);
++		}
++		io_sleep();
++	}
++}
++
++void sweet_virtio_input_init(void);
++void
++sweet_virtio_input_init(void)
++{
++	if (it.running) {
++		return;
++	}
++	vm_offset_t window = ml_io_map(IO_BASE, IO_WINDOW);
++	if (!window) {
++		return;
++	}
++	for (unsigned i = 0; i < IO_WINDOW / IO_STRIDE; i++) {
++		vm_offset_t candidate = window + i * IO_STRIDE;
++		volatile uint32_t *r = (volatile uint32_t *)candidate;
++		if (r[IO_REG_MAGIC / 4] == IO_MAGIC &&
++		    r[IO_REG_VERSION / 4] == IO_VERSION &&
++		    r[IO_REG_DEVICE / 4] == IO_INPUT_ID) {
++			it.regs = candidate;
++			break;
++		}
++	}
++	if (!it.regs) {
++		printf("SWEET VIRTIO INPUT: no tablet; run QEMU with --tablet\n");
++		return;
++	}
++
++	iowr(IO_REG_STATUS, 0);
++	iowr(IO_REG_STATUS, 3);
++	iowr(IO_REG_FEATURES_SEL, 1);
++	if (!(iord(IO_REG_FEATURES) & 1u)) {
++		printf("SWEET VIRTIO INPUT: missing VirtIO v2\n");
++		return;
++	}
++	iowr(IO_REG_DRIVER_SEL, 0); iowr(IO_REG_DRIVER_FEATURES, 0);
++	iowr(IO_REG_DRIVER_SEL, 1); iowr(IO_REG_DRIVER_FEATURES, 1);
++	iowr(IO_REG_STATUS, 11);
++	if (!(iord(IO_REG_STATUS) & 8u)) {
++		return;
++	}
++	iowr(IO_REG_QUEUE_SEL, 0);
++	if (iord(IO_REG_QUEUE_MAX) < IO_QUEUE || iord(IO_REG_QUEUE_READY)) {
++		return;
++	}
++
++	if (kmem_alloc_contig(kernel_map, &it.dma, IO_DMA_SIZE, PAGE_MASK,
++	    0, 0, KMA_DATA | KMA_ZERO | KMA_PERMANENT, VM_KERN_MEMORY_IOKIT) != KERN_SUCCESS) {
++		return;
++	}
++	ppnum_t pp = pmap_find_phys(kernel_pmap, (addr64_t)it.dma);
++	if (!pp) {
++		return;
++	}
++	it.pa = ptoa_64(pp);
++	struct iodesc *desc = (struct iodesc *)(it.dma + IO_DESC);
++	struct ioavail *avail = (struct ioavail *)(it.dma + IO_AVAIL);
++	for (unsigned i = 0; i < IO_QUEUE; i++) {
++		desc[i].addr = it.pa + IO_EVENTS + i * sizeof(struct ioevent);
++		desc[i].len = sizeof(struct ioevent);
++		desc[i].flags = 2; /* device writes */
++		desc[i].next = 0;
++		avail->ring[i] = (uint16_t)i;
++	}
++	avail->flags = 1; /* suppress IRQ, polled */
++	avail->idx = IO_QUEUE;
++	iosync(IO_DESC, IO_QUEUE * sizeof(*desc));
++	iosync(IO_AVAIL, sizeof(*avail));
++	iosync(IO_USED, sizeof(struct ioused));
++	iowr(IO_REG_QUEUE_NUM, IO_QUEUE);
++	ioaddr(IO_REG_DESC_LO, it.pa + IO_DESC);
++	ioaddr(IO_REG_AVAIL_LO, it.pa + IO_AVAIL);
++	ioaddr(IO_REG_USED_LO, it.pa + IO_USED);
++	iowr(IO_REG_QUEUE_READY, 1);
++	iowr(IO_REG_STATUS, 15);
++	iowr(IO_REG_QUEUE_NOTIFY, 0);
++	thread_t thread;
++	kern_return_t kr = kernel_thread_start(io_thread, NULL, &thread);
++	if (kr != KERN_SUCCESS) {
++		printf("SWEET VIRTIO INPUT: thread_start failed %d\n", kr);
++		return;
++	}
++	it.running = true;
++	thread_deallocate(thread);
++	printf("SWEET VIRTIO INPUT: tablet ready, polled queue of %u\n", IO_QUEUE);
++}
++#endif

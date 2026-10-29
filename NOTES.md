@@ -1,5 +1,10 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## Windows / WSL2 QEMU boot advancement (2026-10-29 evening)
+
+Kernel built from corrected patch 0082 via fork macOS Actions run 40924239864. Verified SHA256 41c6b43b2f9303f23d8e20a65cfaa8b47230070a919101f24f59cfd7a3fe305d and _sweet_virtio_rootdev linked. Kernel stored at xnu/out-qemu/kernel.development.sweet (ignored). QEMU detected disk rd=virtiodisk0, mounted actual iOS HFS+ on /, and executed real Apple launchd. First boot WITHOUT unentitled_ios_sim_launch=1 panicked CS_KILLED; repo phone logs document that critical boot arg. Second boot WITH arg reached launchd ondemand, securityd, backboardd and many real daemons; 100-second run completed no panic. In long graphical-mode run (sweetfb_noconsole=1), framebuffer shows genuine Apple boot logo in Windows viewer after more than 2 minutes. SpringBoard GUI NOT confirmed; the Apple logo stayed on screen during the first several minutes. All VM boots used snapshot=on and did not alter root image.
+
+Viewer tools/qemu-live-screen.py provides local Windows HTTP framebuffer display (127.0.0.1:8099) and optional pointer events to QEMU tablet through QMP. tools/qemu-input-smoke.py verified actual EV_ABS X/Y, BTN_LEFT, EV_SYN event queue output; this does NOT prove iOS guest consumption. tools/qemu-virtio-smoke.py tested HFS+ sector read, ephemeral write/readback and VirtIO T_FLUSH with snapshot preserving source. Experimental next patch 0083-sweet-qemu-input-flush.patch adds polled guest VirtIO tablet -> sweet_hid_touch path and correct HFS+ disk flush ioctls. 0083 must pass macOS compile and QEMU boot before claiming it works. Phone hardware paths remain unchanged. See docs/QEMU_WINDOWS.md for commands and status.
 ## Windows / WSL2 QEMU continuation (2026-10-29, experimental)
 
 Development branch: windows-qemu-virtio, based on upstream main 45263be. The original phone boot and Redmi UFS driver are unchanged. See docs/QEMU_WINDOWS.md for exact commands and limitations.
