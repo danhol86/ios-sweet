@@ -18,6 +18,11 @@ xnu/patches/0082-sweet-qemu-virtio-blk.patch introduces a QEMU-only, explicitly 
 - Polls QEMU's VirtIO MMIO transports at 0x0a000000..0x0a003fff and locates block device ID 2, rather than assuming the first slot.
 - Uses 512-byte logical sectors, a polled split ring and a 64 KiB bounce buffer. Supports reads and writes; guest writes are directed to QEMU's temporary snapshot by default.
 - QEMU qtest confirmed the device at 0x0a003e00 with magic 0x74726976, ID 2.
+- QEMU defaults to the *legacy* VirtIO MMIO transport. The runner explicitly enables
+  modern version 2 using the QEMU option virtio-mmio.force-legacy=false.
+- tools/qemu-virtio-smoke.py verifies an actual 512-byte sector read against
+  the raw disk, and a guest write/readback in snapshot mode while confirming
+  the original HFS+ image has not changed.
 - **This kernel driver is experimental.** Its presence in a patch is not proof that the kernel builds or that iOS reaches the home screen. Check the actual CI result and boot log before saying it works.
 
 Use the high-memory Apple device tree so the guest has room for iOS userland:
@@ -35,6 +40,17 @@ python3 tools/qemu-sweet.py /home/ios-sweet-test/payload-qemu-disk.bin \
 ~~~
 
 **The kernel binary in these commands must have been rebuilt with patch 0082**; the upstream kernel artifact predates that patch and has no VirtIO root driver. QEMU defaults to snapshot=on so writes do not modify the verified HFS+ root. Only use --write-disk to persist writes when intentionally testing a disposable disk copy.
+
+View a running VM from Windows using the separate local display viewer:
+
+~~~sh
+python3 tools/qemu-live-screen.py /home/ios-sweet-test/qemu-disk-test --port 8099
+~~~
+
+Open http://127.0.0.1:8099/ in Windows. The viewer polls guest framebuffer
+snapshots while the QEMU session remains active, with no external listeners.
+It has been tested from a Windows HTTP client (HTTP 200 with real XNU boot
+console pixels), but **it does not yet send mouse or touch input to iOS**.
 
 ## Remaining work
 
