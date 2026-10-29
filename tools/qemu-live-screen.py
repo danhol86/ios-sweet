@@ -2,13 +2,16 @@
 """Local-only live framebuffer viewer for a running qemu-sweet.py VM.
 
 Serves successive QMP pmemsave snapshots in a Windows browser via WSL2
-localhost forwarding. It is NOT a touch/HID input implementation.
+localhost forwarding. With --enable-input, pointer events are sent to QEMU
+VirtIO tablet; an iOS guest driver is still required to consume them.
 """
 import argparse
 import importlib.util
+import json
 import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+import socket
 import sys
 from urllib.parse import urlsplit
 
@@ -26,17 +29,18 @@ main{margin:auto;max-width:680px;padding:18px 20px;text-align:center}
 h1{font-size:20px;margin:4px 0 8px}
 p{font-size:13px;color:#a5b3c7;line-height:1.5}
 #state{font:13px ui-monospace,monospace;margin:10px}
-#frame{display:block;width:auto;max-width:100%;height:auto;max-height:80vh;margin:12px auto;background:black;border:1px solid #374151;border-radius:22px}
+#frame{display:block;width:auto;max-width:100%;height:auto;max-height:80vh;margin:12px auto;background:black;border:1px solid #374151;border-radius:22px;touch-action:none}
 small{display:block;margin-top:12px;color:#8995a8}
 </style></head><body><main>
 <h1>ios-sweet QEMU display</h1>
-<p>Live physical framebuffer snapshots from the ARM64 VM. Touch, mouse and keyboard control are not connected to iOS yet.</p>
+<p>Live physical framebuffer snapshots from the ARM64 VM. INPUT_STATUS</p>
 <div id="state">Connecting to QEMU...</div>
 <img id="frame" alt="QEMU iPhone framebuffer">
 <small>Local development viewer. Close this page to stop polling; the VM is managed separately.</small>
 </main><script>
 var img=document.getElementById("frame"), state=document.getElementById("state");
 var busy=false;
+var inputEnabled=INPUT_ENABLED, pointerActive=false, lastPointer=0;
 async function refresh(){
  if(busy) return;
  busy=true;
@@ -51,14 +55,64 @@ async function refresh(){
  finally {busy=false;}
 }
 refresh();setInterval(refresh,1600);
+async function sendPointer(ev,down) {
+ if(!inputEnabled)return;
+ var b=img.getBoundingClientRect();
+ if(b.width<=0 || b.height<=0)return;
+ var x=Math.min(1,Math.max(0,(ev.clientX-b.left)/b.width));
+ var y=Math.min(1,Math.max(0,(ev.clientY-b.top)/b.height));
+ try {
+   var r=await fetch("/touch",{method:"POST",headers:{"Content-Type":"application/json"},
+     body:JSON.stringify({x:x,y:y,down:down})});
+   if(!r.ok)state.textContent="Tablet event rejected by QEMU ("+r.status+")";
+ } catch(e){state.textContent="Tablet input error: "+e.message;}
+}
+img.addEventListener("pointerdown",function(e){
+ if(!inputEnabled)return;
+ e.preventDefault();pointerActive=true;img.setPointerCapture(e.pointerId);
+ sendPointer(e,true);
+});
+img.addEventListener("pointermove",function(e){
+ if(!pointerActive || !inputEnabled || Date.now()-lastPointer<25)return;
+ lastPointer=Date.now();sendPointer(e,true);
+});
+function pointerUp(e){
+ if(!pointerActive)return;pointerActive=false;sendPointer(e,false);
+}
+img.addEventListener("pointerup",pointerUp);
+img.addEventListener("pointercancel",pointerUp);
 </script></body></html>"""
+
+def qmp_tablet_event(sockpath, events):
+    with socket.socket(socket.AF_UNIX) as conn:
+        conn.settimeout(5)
+        conn.connect(str(sockpath))
+        f=conn.makefile("rw")
+        if not f.readline():
+            raise RuntimeError("QMP unavailable")
+        def call(command, arguments=None):
+            request={"execute":command}
+            if arguments is not None:
+                request["arguments"]=arguments
+            f.write(json.dumps(request)+"\n")
+            f.flush()
+            result=json.loads(f.readline())
+            if "error" in result:
+                raise RuntimeError(str(result["error"]))
+        call("qmp_capabilities")
+        call("input-send-event", {"events":events})
+        f.close()
 
 class ViewerHandler(BaseHTTPRequestHandler):
     outdir = None
+    input_enabled = False
     def do_GET(self):
         path = urlsplit(self.path).path
         if path == "/":
-            blob = HTML.encode()
+            status=("Pointer events are forwarded to QEMU's tablet. iOS HID support remains experimental."
+                    if self.input_enabled else "Touch input disabled; run viewer with --enable-input and QEMU with --tablet.")
+            blob = HTML.replace("INPUT_STATUS",status).replace(
+                "INPUT_ENABLED","true" if self.input_enabled else "false").encode()
             mime = "text/html; charset=utf-8"
         elif path == "/frame.png":
             mon = self.outdir / "mon.sock"
@@ -91,14 +145,54 @@ class ViewerHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(blob)
 
+    def do_POST(self):
+        if urlsplit(self.path).path != "/touch":
+            self.send_error(404)
+            return
+        if not self.input_enabled:
+            self.send_error(403, "Tablet input disabled")
+            return
+        if self.headers.get("Content-Type","").split(";")[0].strip()!="application/json":
+            self.send_error(415, "JSON required")
+            return
+        try:
+            length=int(self.headers.get("Content-Length","0"))
+            if not 1 <= length <= 512:
+                raise ValueError("Invalid event length")
+            event=json.loads(self.rfile.read(length))
+            x,y,down=event["x"],event["y"],event["down"]
+            if type(down) is not bool or type(x) not in (float,int) or type(y) not in (float,int):
+                raise ValueError("Invalid pointer values")
+            if not 0 <= x <= 1 or not 0 <= y <= 1:
+                raise ValueError("Pointer out of bounds")
+            events=[
+                {"type":"abs","data":{"axis":"x","value":round(x*32767)}},
+                {"type":"abs","data":{"axis":"y","value":round(y*32767)}},
+                {"type":"btn","data":{"button":"left","down":down}},
+            ]
+            qmp_tablet_event(self.outdir/"mon.sock",events)
+        except (ValueError,TypeError,KeyError,IndexError,json.JSONDecodeError):
+            self.send_error(400,"Bad tablet event")
+            return
+        except (OSError,RuntimeError,TimeoutError) as e:
+            print(f"tablet input failed: {e}",file=sys.stderr)
+            self.send_error(503,"QEMU tablet unavailable")
+            return
+        self.send_response(204)
+        self.send_header("Cache-Control","no-store")
+        self.end_headers()
+
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("outdir", type=Path, help="RUN_OUT used by a running qemu-sweet.py")
     ap.add_argument("--port", type=int, default=8099)
+    ap.add_argument("--enable-input", action="store_true",
+                    help="send browser pointer events to QEMU VirtIO tablet (iOS kernel HID driver still required)")
     a=ap.parse_args()
     if not a.outdir.is_dir():
         ap.error("QEMU output directory does not exist")
     ViewerHandler.outdir=a.outdir.resolve()
+    ViewerHandler.input_enabled=a.enable_input
     server=HTTPServer(("127.0.0.1",a.port),ViewerHandler)
     print(f"Local QEMU framebuffer viewer: http://127.0.0.1:{a.port}/", flush=True)
     try: server.serve_forever()

@@ -229,6 +229,7 @@ def main():
     ap.add_argument('--live-serial', action='store_true', help='stream serial console output to stdout in real time')
     ap.add_argument('--disk', help='raw virtual iOS root disk, attached through VirtIO MMIO (rd=virtiodisk0)')
     ap.add_argument('--write-disk', action='store_true', help='persist changes to --disk (default: QEMU copy-on-write snapshot)')
+    ap.add_argument('--tablet', action='store_true', help='attach a VirtIO tablet for future iOS touch input')
     ap.add_argument('--check-env', action='store_true', help='check QEMU installation and dependencies without running a payload')
     a = ap.parse_args()
 
@@ -297,6 +298,9 @@ def main():
         cmd += ['-drive', f'if=none,id=iosroot,format=raw,file={disk},snapshot={"off" if a.write_disk else "on"}',
                 '-device', 'virtio-blk-device,drive=iosroot']
         print(f'[*] VirtIO MMIO disk: {disk} ({"persistent" if a.write_disk else "snapshot"})', file=sys.stderr)
+    if a.tablet:
+        cmd += ['-device', 'virtio-tablet-device,id=sweet-tablet']
+        print('[*] VirtIO tablet added (requires an in-kernel input driver)', file=sys.stderr)
     if a.gdb:
         cmd += ['-S', '-gdb', 'tcp::1234']
 
