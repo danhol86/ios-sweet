@@ -227,6 +227,8 @@ def main():
     ap.add_argument('--kernel', help='matching unstripped kernel, for exact framebuffer text decoding (uses llvm-nm)')
     ap.add_argument('--fail-on-panic', action='store_true', help='exit 2 for a visible panic, 3 for incomplete/blank decoding; requires --kernel')
     ap.add_argument('--live-serial', action='store_true', help='stream serial console output to stdout in real time')
+    ap.add_argument('--disk', help='raw virtual iOS root disk, attached through VirtIO MMIO (rd=virtiodisk0)')
+    ap.add_argument('--write-disk', action='store_true', help='persist changes to --disk (default: QEMU copy-on-write snapshot)')
     ap.add_argument('--check-env', action='store_true', help='check QEMU installation and dependencies without running a payload')
     a = ap.parse_args()
 
@@ -243,6 +245,11 @@ def main():
 
     if a.fail_on_panic and not a.kernel:
         ap.error('--fail-on-panic requires --kernel')
+
+    if a.write_disk and not a.disk:
+        ap.error('--write-disk requires --disk')
+    if a.disk and (not os.path.isfile(a.disk) or os.path.getsize(a.disk) % 512):
+        ap.error('--disk must name an existing raw image with a size divisible by 512 bytes')
 
     if not check_qemu_dependency(a.cpu):
         return 1
@@ -279,6 +286,13 @@ def main():
            '-device', f'loader,file={out}/ram.bin,addr={phys_base:#x},force-raw=on',
            '-device', f'loader,file={out}/stub.bin,addr={STUB_PA:#x},force-raw=on',
            '-device', f'loader,addr={STUB_PA:#x},cpu-num=0']
+    if a.disk:
+        disk = os.path.abspath(a.disk)
+        # snapshot=on is essential: never let a guest kernel under development
+        # modify the verified source HFS+ image unless explicitly requested.
+        cmd += ['-drive', f'if=none,id=iosroot,format=raw,file={disk},snapshot={"off" if a.write_disk else "on"}',
+                '-device', 'virtio-blk-device,drive=iosroot']
+        print(f'[*] VirtIO MMIO disk: {disk} ({"persistent" if a.write_disk else "snapshot"})', file=sys.stderr)
     if a.gdb:
         cmd += ['-S', '-gdb', 'tcp::1234']
 

@@ -1,5 +1,14 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## Windows / WSL2 QEMU continuation (2026-10-29, experimental)
+
+Development branch: windows-qemu-virtio, based on upstream main 45263be. The original phone boot and Redmi UFS driver are unchanged. See docs/QEMU_WINDOWS.md for exact commands and limitations.
+
+On the Windows host, C: free space was >100 GB after user cleared it; latest observed ~79 GB after system image assembly. WSL2 Ubuntu 24.04 has QEMU 8.2.2. Downloaded public build from upstream Actions run 39158169212; verified kernel SHA256 d9cb893bd2baf841e94cd2001f0ec70c0fea42f045f87f14ae807e4ebc50e1e5. Extracted official iPhone X 16.7.16 20H392 OS, SystemOS, AppOS and ADT; built a 16 GiB HFS+ volume and verified it contains launchd, SpringBoard, shared cache, system keybag, and fsck passes. Original Apple files and image are outside git, under WSL /home/ios-sweet-test and local gitignored research/.
+
+Boot observations: QEMU baseline kernel reached PID 1 using an empty 64 MiB HFS+ RAM disk, then panicked (expected errno 2 missing /sbin/launchd). The highmem ADT (--qemu --highmem) reproduced the same missing-launchd panic in an 8 GiB QEMU machine. This is evidence of XNU kernel/userspace handoff, not an iOS GUI boot.
+
+Experiment: tools/qemu-sweet.py now accepts --disk, which defaults to copy-on-write QEMU snapshot. QEMU qtest verified VirtIO MMIO magic at 0x0a003e00, block device ID 2 (the first MMIO slot at 0x0a000000 is empty). Patch 0082 creates an opt-in polled VirtIO MMIO block BSD root at rd=virtiodisk0; mock-tree git apply --check and git apply both passed, and unmodified QEMU runner --disk smoke started successfully. These do NOT prove the new driver compiles or boots until a fresh macOS CI build and QEMU verification. Next: build 0082, correct compile errors, boot QEMU with real iOS disk, and fix observed faults. Browser/VNC framebuffer and HID input are not implemented.
 ## Agent handoff / active work (2026-10-15, latest)
 
 ### >>> UPDATE 2026-10-18 (read first, then the 10-17 handoff below) <<<
