@@ -16,7 +16,9 @@ param(
     [string]$DeviceTree = '',
     [string]$StateDirectory = '',
     [ValidateRange(1024,65535)][int]$Port = 8108,
-    [ValidateRange(1,8)][int]$Cpus = 4,
+    # Four vCPUs reproduced a kernel ticket-spinlock timeout between CPU 1
+    # and CPU 3 after about an hour (2026-10-30). Default to stable UP mode.
+    [ValidateRange(1,8)][int]$Cpus = 1,
     [ValidateRange(60,7200)][int]$Seconds = 7200,
     [switch]$Network,
     [switch]$TraceNetworkPath,
