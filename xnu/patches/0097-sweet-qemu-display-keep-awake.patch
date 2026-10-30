@@ -1,0 +1,19 @@
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -535,6 +535,16 @@
+ 	case kSweetFBRequestPowerChange:
+ 		if (args->scalarInputCount >= 1) {
+ 			bool off = args->scalarInput[0] == 0;
++			/* QEMU has no physical power button exposed to the browser.
++			 * iOS auto-lock otherwise fades the sole viewer framebuffer to
++			 * black with no way to wake it using tablet touch input.
++			 * Honor the opt-in QEMU boot arg; keep real-device power logic.
++			 */
++			uint32_t keep_awake = 0;
++			if (off && PE_parse_boot_argn("sweet_qemu_keep_awake",
++			    &keep_awake, sizeof(keep_awake)) && keep_awake) {
++				off = false;
++			}
+ 			IOLockLock(fFB->fLock);
+ 			if (off != fFB->fPowerOff) {
+ 				fFB->fPowerOff = off;

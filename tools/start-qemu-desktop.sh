@@ -95,7 +95,7 @@ if [[ "$network" == "1" ]]; then
     fi
 fi
 python3 "$repo/tools/mkpayload.py" "$kernel" "$run/qemu.adt" "$run/payload.bin" \
-    --cmdline "debug=0xc serial=3 cpus=$cpus keepsyms=1 -enable_kprintf_spam -noprogress rd=virtiodisk0 unentitled_ios_sim_launch=1 rootrw=1 launchd_unsecure_cache=1 ignition_level=1 wdt_test=no_user_checkin wdt=-1 sweetsample=$sample sweetsample_delay=$sample_delay sweetsample_interval=$sample_interval $fbarg $smp_flag $network_delegate_flag"
+    --cmdline "debug=0xc serial=3 cpus=$cpus keepsyms=1 -enable_kprintf_spam -noprogress rd=virtiodisk0 unentitled_ios_sim_launch=1 rootrw=1 launchd_unsecure_cache=1 ignition_level=1 wdt_test=no_user_checkin wdt=-1 sweetsample=$sample sweetsample_delay=$sample_delay sweetsample_interval=$sample_interval sweet_qemu_keep_awake=1 $fbarg $smp_flag $network_delegate_flag"
 
 python3 "$repo/tools/qemu-live-screen.py" "$run" --enable-input --host "$viewer_host" --port "$port" > "$run/viewer.log" 2>&1 &
 viewer_pid=$!

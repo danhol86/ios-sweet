@@ -82,6 +82,17 @@ hours while the container is running.
 Do not share the same overlay between two simultaneously running instances.
 The viewer binds only to localhost.
 
+**QEMU black-screen diagnosis (30 October 2026):** The live guest's
+kernel console shows `SWEET FB: display off` after the initial
+framebuffer swaps. The browser Home control sends tablet swipes, not
+the physical power key, so it does not wake the display. New XNU patch
+`0097-sweet-qemu-display-keep-awake.patch` suppresses *only* this
+power-off transition when QEMU passes `sweet_qemu_keep_awake=1`.
+Physical SWEET devices retain normal display sleep. A newly rebuilt
+XNU kernel is required for this change; older installed kernels ignore
+the boot arg. The guest also exhibits a mobileactivationd SIGTRAP
+crash loop, which is a **separate** unsolved iOS startup problem.
+
 ## Running without the installer / in CI
 
 Windows PowerShell, from the extracted project root:
