@@ -34,6 +34,7 @@ env:
 
 jobs:
   build:
+    if: ${{ inputs.machine_config != 'NETPROBE' }}
     # macos-15 is arm64 and may fail to acquire a hosted runner under
     # capacity constraints (seen on 2026-10-30, run 41039151252).
     # Intel macOS 15 has the Xcode toolchain for ARM64 cross compilation.
@@ -126,3 +127,31 @@ jobs:
           name: xnu-kernel
           path: out/
           if-no-files-found: warn
+
+  # For a branch-only diagnostic tool, reuse this established workflow.
+  # Dispatch with machine_config=NETPROBE; no kernel is rebuilt or replaced.
+  ios-userland-netprobe:
+    if: ${{ inputs.machine_config == 'NETPROBE' }}
+    runs-on: macos-15-intel
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build unsigned-platform diagnostic for iOS arm64
+        run: |
+          set -euo pipefail
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          mkdir -p output
+          xcrun --sdk iphoneos clang \
+            -arch arm64 -miphoneos-version-min=16.0 -isysroot "$SDK" \
+            -O2 -Wall -Wextra -Werror \
+            tools/ios-net-probe.c -framework SystemConfiguration \
+            -o output/iossweet-net-probe
+          codesign --force --sign - output/iossweet-net-probe
+          file output/iossweet-net-probe
+          shasum -a 256 output/iossweet-net-probe > output/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-arm64-net-probe
+          path: output
+          retention-days: 7
