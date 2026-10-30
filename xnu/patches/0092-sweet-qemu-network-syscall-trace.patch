@@ -16,7 +16,7 @@
 +    if (!sweet_qemu_network_trace || sweet_net_trace_count >= 100) return;
 +    char name[32];
 +    proc_name(proc_pid(p), name, sizeof(name));
-+    if (strstr(name, "WebKit") == NULL &&
++    if (strncmp(name, "com.apple.WebKit", 16) != 0 &&
 +        strcmp(name, "MobileSafari") != 0 &&
 +        strcmp(name, "mDNSResponder") != 0 &&
 +        strcmp(name, "nsurlsessiond") != 0) return;
