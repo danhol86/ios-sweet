@@ -623,3 +623,43 @@ What it took today (in order): 0058 HID services (Apple IOHIDFamily-1915 user cl
      cpu_init, before arm_vm_init.
   5. panic hook at top of panic_trap_to_debugger: va_copy + _doprnt(fmt, &copy, sweet_early_putc, 16).
   Verify with tools/xnu-cc.py (compile+symbols) and patch-order simulation before the single CI run.
+## Docker-only iOS DNS breakthrough and one-click installer (2026-10-30)
+
+- Last tested native probe: commit `9e2b24c`, GitHub Actions run
+  `41057568604`. In a private QEMU overlay, root can publish
+  `State:/Network/Service/.../IPv4`, `State:/Network/Global/IPv4`,
+  `State:/Network/Interface/en0/Link`, and global/per-service DNS using
+  SCDynamicStore. Each write and subsequent readback succeeded.
+- Native iOS `getaddrinfo("google.com")` repeatedly returned `rc=0`
+  with actual Google IP addresses after state publication. Before this
+  operation it returned resolver error 8. Userland `en0=10.0.2.15`,
+  native TCP to `1.1.1.1:443` and system DNS requests are proven.
+  In the representative capture, 112 DNS questions produced successful
+  responses and many real outbound TCP SYNs. **This does NOT demonstrate
+  completed Safari graphical page rendering**, which still needs a live
+  UI test.
+- Root `SCDynamicStoreSetValue` accepted writes; UID 501 received
+  `SCError=1003` (no permission). Root launchd service allowed the
+  correct write. A new standalone launchd job in the consolidated
+  iOS 16 cache did not launch in the guest, so it cannot be relied on.
+- A small root bootstrap `tools/ios-network-seed.c` was compiled by
+  GitHub run `41058935039`, SHA256
+  `a759bc9f02ecdcd6b685660cd0d7dfe9ae0c5b4d2e552788a0a323c701094063`.
+  When *only in a private QEMU overlay* replacing the launch path of
+  `/System/Library/CoreServices/ReportCrash` (with the unmodified
+  original preserved as `ReportCrash.iossweet-original`), its log read
+  `IOS_NETSEED_START uid=0 mode=reportcrash-wrapper` followed by
+  `IOS_NETSEED_DONE rc=0`. The iOS lock screen booted. System DNS and
+  external HTTPS traffic subsequently appeared without a diagnostic
+  probe. Native Safari interaction via framebuffer viewer later timed
+  out amid host memory pressure; browser rendering remains **unverified**.
+- The main Windows installer on `D:\Projects\ios-sweet` is being
+  updated to build Docker from scratch and prepare an isolated QCOW2
+  overlay automatically. The 16 GiB private Apple root image must stay
+  ignored/read-only; do not push it or any user device media. Keep the
+  Linux `docker-desktop` WSL backend; unrelated Docker workloads may
+  depend on it. No additional Ubuntu WSL installation is required.
+- Older project-specific test containers and their 701 MB Docker image
+  were removed at user request, along with the unused Compose network.
+  No project-specific named Docker volumes existed. Leave unrelated
+  containers, images, and shared Docker data untouched.
