@@ -6,6 +6,7 @@ services:
       dockerfile: docker/Dockerfile
     image: ios-sweet-qemu:local
     init: true
+    mem_limit: 8g
     ports:
       - "127.0.0.1:${IOS_SWEET_VIEWER_PORT:-8108}:8099"
     environment:
@@ -16,7 +17,7 @@ services:
       SWEET_QEMU_PORT: '8099'
       SWEET_QEMU_CPUS: ${IOS_SWEET_CPUS:-1}
       SWEET_QEMU_SECONDS: ${IOS_SWEET_SECONDS:-7200}
-      SWEET_QEMU_NETWORK: ${IOS_SWEET_NETWORK:-0}
+      SWEET_QEMU_NETWORK: ${IOS_SWEET_NETWORK:-1}
       SWEET_QEMU_NECP_TRACE: ${IOS_SWEET_NECP_TRACE:-0}
       SWEET_QEMU_PRODUCT_ADT: /guest/d22ap.adt
       SWEET_QEMU_LOG_FLAGS: guest_errors,unimp

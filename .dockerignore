@@ -2,3 +2,6 @@
 **
 !docker/
 !docker/entrypoint.sh
+!docker/prepare-network.sh
+!docker/network/
+!docker/network/iossweet-net-seed

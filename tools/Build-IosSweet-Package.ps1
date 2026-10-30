@@ -24,6 +24,7 @@ $names=@(& git -C $repo ls-tree -r --name-only HEAD)
 if ($LASTEXITCODE -ne 0) { throw 'Unable to list tracked files.' }
 $required=@('Install-iOS-Sweet.cmd','Start-iOS-Sweet-Docker.cmd','docker/compose.yml',
   'docker/Dockerfile','docker/entrypoint.sh','docs/ONE_CLICK_DEPLOY.md',
+  'docker/prepare-network.sh','docker/network/iossweet-net-seed',
   'tools/mkadt.py','tools/Start-IosSweet-Docker.ps1')
 foreach($name in $required){if($name -notin $names){throw "Missing tracked package component $name"}}
 $bad=@($names | Where-Object {$_ -match '(?i)(^Users/|^research/ipsw-x/|(^|/)(local-state|local-guest|local-config|local-assets)/|\.((qcow2|raw|vhdx|im4p|adt|p8|p12|ipa|mobileprovision))$)'})

@@ -141,17 +141,20 @@ The log contains crash reports with backtraces (`CRASH name ...`), IOKit traces 
 ### QEMU
 
 **Windows desktop: Docker-only (experimental).** Install Docker Desktop and
-double-click `Install-iOS-Sweet.cmd`. This starts the ARM64 QEMU guest in a
-Linux container (software emulation, no extra Ubuntu/WSL distribution), saves
-the selected private guest image, kernel and device-tree paths locally, and
-creates **iOS Sweet (Docker)** on the desktop. The viewer is
-`http://127.0.0.1:8108/`. The real iPhone X iOS 16.7.16 lock screen,
-SpringBoard, gestures, Settings and Safari open; **Safari has no working
-internet access yet**.
+double-click `Install-iOS-Sweet.cmd`. This builds a single Docker image,
+prepares a private copy-on-write iOS disk with automatic root-owned
+IPv4/DNS seeding, and starts the ARM64 QEMU emulator without requiring an
+extra Ubuntu/WSL distribution. It saves local source paths and creates
+**iOS Sweet (Docker)** on the desktop. The viewer is
+`http://127.0.0.1:8108/`. The iPhone X iOS 16.7.16 lock screen and
+SpringBoard boot; native guest hostname resolution and outbound TCP now pass.
+**Safari page rendering is still experimental and is not yet fully verified.**
 
 The interactive guest requires a locally prepared private test root
-with a MobileGestalt-related compatibility workaround; the modified
-Apple userland is never distributed or committed. See
+with the existing MobileGestalt compatibility workaround. Neither the
+modified Apple userland nor any guest firmware is distributed or committed.
+The installer includes only our small open-source boot helper; its original
+Apple `ReportCrash` target is preserved in the private overlay. See
 [Docker-only installation and networking status](docs/ONE_CLICK_DEPLOY.md).
 
 `tools/qemu-sweet.py` boots the same kernel on QEMU `virt` with a test RAM-disk root. It is useful for kernel-only changes; see `NOTES.md`.

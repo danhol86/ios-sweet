@@ -1,9 +1,11 @@
 # iOS Sweet: Docker-only Windows installation
 
 **Status — 30 October 2026:** the real iOS 16.7.16 GUI starts in an ARM64
-QEMU guest running inside Docker Desktop on Windows. Touch, SpringBoard and
-Safari launch. **Safari networking is not working yet.** This is experimental,
-not a general-purpose iOS simulator or an Apple-supported runtime.
+QEMU guest running inside Docker Desktop on Windows. A native root-owned
+SystemConfiguration bootstrap now makes the iOS DNS resolver return valid
+Google IP addresses and initiates real external HTTPS connections. This
+does **not** by itself establish that Safari renders pages reliably.
+This is experimental, not a general-purpose or Apple-supported emulator.
 
 ## Install on a new Windows PC
 
@@ -25,7 +27,8 @@ Prerequisites:
 
 **Double-click `Install-iOS-Sweet.cmd`.** The setup checks Docker and asks
 for any missing kernel, iOS disk or device-tree file, validates the image
-mounts, builds the QEMU image, and creates the desktop shortcut
+mounts, builds the QEMU image, prepares its private network-enabled
+guest overlay, and creates the desktop shortcut
 **iOS Sweet (Docker)**. Subsequent launches reuse the saved file paths in
 `docker/local-config/windows.json` (ignored by Git); no Ubuntu shell, WSL
 distribution, root password or system-wide environment configuration is needed.
@@ -36,7 +39,14 @@ The iOS boot itself takes longer. Press **Swipe up / Home** in the viewer to
 unlock or return to SpringBoard.
 
 The container mounts all three supplied inputs **read-only** and uses the
-separate persistent `docker/local-state/ios.qcow2` overlay for guest writes.
+separate persistent `docker/local-state/oneclick/ios.qcow2` overlay
+for guest writes. The first launch automatically installs the
+70 KB iOS ARM64 DNS bootstrap into that overlay; the stock Apple
+`ReportCrash` executable is copied to
+`ReportCrash.iossweet-original` so the wrapper can execute it after
+publishing active IPv4 and DNS state. No installed disk outside the overlay
+is modified; re-running setup verifies the bootstrap instead of duplicating
+it.
 This means an iOS reboot preserves state without changing the original disk.
 Do not share the same overlay between two simultaneously running instances.
 The viewer binds only to localhost.
@@ -83,38 +93,34 @@ It does not include the large local iOS image or a built kernel. If packaging
 from a developer branch, first commit its changes; otherwise the ZIP will
 contain the earlier committed tree.
 
-## Debugging current Safari networking
+## Current Safari networking state
 
-Networking is **off by default** with the verified GUI-only 0086 kernel.
-The experimental networking branch is
-`danhol86/ios-sweet:qemu-net-ioreg-probe`; GitHub Actions run
-`41031874190` built the combined socket/NECP diagnostic kernel (SHA-256
-`d97b60c0a29a6170663eb4bc14027f056180013fde9b4d699b0a9b06e0dcf59a`).
-Do not overwrite the stable GUI kernel or state overlay with experimental
-networking artifacts. Use a separate test state and distinct Docker Compose
-project when testing concurrently.
+Networking is **on by default** using the local kernel
+`xnu/out-qemu-network-0099/kernel.development.sweet`, and a private
+guest overlay distinct from all earlier tests. On another machine,
+choose the verified network-enabled kernel using the file picker.
+The first boot publishes QEMU `en0=10.0.2.15/24`, route
+`10.0.2.2`, DNS `10.0.2.3` and the corresponding dynamic IPv4/DNS
+service state as root. The bootstrap is restricted to the QEMU guest
+and has no physical-iPhone installation path.
 
-Confirmed: the Docker host can resolve and fetch `https://example.com`
-(HTTP 200), the iOS guest has QEMU `en0=10.0.2.15/24`, and the kernel's
-direct DNS probe reaches `10.0.2.3`. **Safari shows a blank page and
-emits no TCP SYN**. MobileSafari/WebKit receive NECP
-`flags=0x100024 policy=0 ifindex=4 reason=0`, but do not attempt a traced
-socket connection. The guest's `SystemConfiguration/preferences.plist`
-already contains a manual Ethernet/DNS service while
-`NetworkInterfaces.plist` has no entries. Simply seeding that registry
-was tested independently and did not fix Safari.
-
-Next troubleshoot actual IONetworkingFamily registration, Network.framework
-and DNS dynamic-store service state. Do not fake internet connectivity by
-returning successful path or permission results. Verify **both HTTP and
-HTTPS in Safari and actual guest-originated TCP SYN traffic** before calling
-networking complete. Full technical findings and artifacts are in
-`NOTES.md` on the networking branch; the private captures remain local.
+An isolated test confirmed `getaddrinfo("google.com") == 0` repeatedly;
+packet capture recorded actual application/system DNS requests and TCP
+connections. Separate startup testing confirmed
+`IOS_NETSEED_START uid=0` / `IOS_NETSEED_DONE rc=0`. The GUI booted
+to the lock screen but touchscreen viewing became unreliable under
+Windows memory pressure. **Still verify HTTP and HTTPS page rendering
+directly in Safari before declaring complete browser compatibility.**
 
 ## Storage and safety
 
 - Use `docker logs ios-sweet-qemu-ios-sweet-1` for Docker startup messages.
 - Use `Start-IosSweet-Docker.ps1 -Stop` to stop only iOS Sweet.
+- The one-click installer removes/recreates neither shared Docker volumes
+  nor other projects' containers. It creates only the `ios-sweet-qemu`
+  Compose service and a local bind-mounted overlay.
+- Keep at least 3 GiB of free host RAM before starting; emulating iOS
+  in QEMU's single-vCPU software mode is demanding.
 - Do **not** unregister or delete Docker Desktop's `docker-desktop` WSL
   distribution, its VHDX, or other applications' Docker volumes.
 - Old native Windows/Ubuntu launchers are retired. Historical technical

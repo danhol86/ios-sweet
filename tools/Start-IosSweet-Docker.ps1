@@ -21,6 +21,7 @@ param(
     [ValidateRange(1,8)][int]$Cpus = 1,
     [ValidateRange(60,7200)][int]$Seconds = 7200,
     [switch]$Network,
+    [switch]$NoNetwork,
     [switch]$TraceNetworkPath,
     [switch]$CheckOnly,
     [switch]$Interactive,
@@ -39,6 +40,8 @@ if ($dockerOS.Trim() -ne 'linux') { throw 'Docker Desktop must be in Linux conta
 & docker compose version --short | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Docker Compose v2 is required.' }
 $project='ios-sweet-qemu'
+if($Network -and $NoNetwork) { throw 'Choose -Network or -NoNetwork, not both.' }
+$networkEnabled=(-not $NoNetwork)
 if ($Stop) {
     & docker compose --env-file (Join-Path $repo 'docker\.env.example') -p $project -f $compose down
     if ($LASTEXITCODE -ne 0) { throw 'Could not stop iOS Sweet Docker container.' }
@@ -65,10 +68,20 @@ function Select-Asset([string]$supplied, [string]$previous, [string]$default, [s
     }
     return (Resolve-Path -LiteralPath $path).Path
 }
-$defaultKernel=Join-Path $repo 'xnu\out-qemu-0086\kernel.development.sweet'
+$defaultKernel=if($networkEnabled){
+    Join-Path $repo 'xnu\out-qemu-network-0099\kernel.development.sweet'
+}else{
+    Join-Path $repo 'xnu\out-qemu-0086\kernel.development.sweet'
+}
 $defaultGuest=Join-Path $repo 'docker\local-guest\ios16-net-test.raw'
 $defaultAdt=Join-Path $repo 'research\ipsw-x\d22ap.adt'
-$KernelPath=Select-Asset $KernelPath $saved.KernelPath $defaultKernel 'rebuilt SWEET XNU kernel.development.sweet'
+$savedKernel=if($saved){[string]$saved.KernelPath}else{''}
+if($networkEnabled -and $savedKernel -eq (Join-Path $repo 'xnu\out-qemu-0086\kernel.development.sweet')){
+    # Migrate earlier GUI-only installs automatically; do not silently boot
+    # a kernel that lacks networking with the new one-click installer.
+    $savedKernel=''
+}
+$KernelPath=Select-Asset $KernelPath $savedKernel $defaultKernel 'network-enabled SWEET XNU kernel.development.sweet'
 $GuestDisk=Select-Asset $GuestDisk $saved.GuestDisk $defaultGuest 'your prepared iOS HFSX .raw guest image'
 $DeviceTree=Select-Asset $DeviceTree $saved.DeviceTree $defaultAdt 'extracted iPhone X d22ap.adt device tree'
 if ((Get-Item -LiteralPath $DeviceTree).Length -lt 16384) { throw 'Incomplete private D22AP device tree.' }
@@ -77,8 +90,13 @@ if ((Get-Item -LiteralPath $GuestDisk).Length -lt 1GB) { throw 'Guest disk is un
 $KernelPath=(Resolve-Path -LiteralPath $KernelPath).Path
 $GuestDisk=(Resolve-Path -LiteralPath $GuestDisk).Path
 if (-not $StateDirectory) {
-    if ($saved -and $saved.StateDirectory) { $StateDirectory=[string]$saved.StateDirectory }
-    else { $StateDirectory=Join-Path $repo 'docker\local-state' }
+    $oldState=Join-Path $repo 'docker\local-state'
+    if ($saved -and $saved.StateDirectory -and [string]$saved.StateDirectory -ne $oldState) {
+        $StateDirectory=[string]$saved.StateDirectory
+    }else{
+        # Never reopen an old GUI-only overlay or mutate experimental disks.
+        $StateDirectory=Join-Path $repo 'docker\local-state\oneclick'
+    }
 }
 if ($KernelPath -notmatch '^[A-Za-z]:\\' -or $GuestDisk -notmatch '^[A-Za-z]:\\') { throw 'Kernel and guest disk must be on a local Windows drive shared with Docker.' }
 if ($DeviceTree -notmatch '^[A-Za-z]:\\') { throw 'Device tree must be on a local Windows drive shared with Docker.' }
@@ -105,8 +123,11 @@ $env:IOS_SWEET_STATE_DIR=$StateDirectory.Replace([char]92,[char]47)
 $env:IOS_SWEET_VIEWER_PORT=[string]$Port
 $env:IOS_SWEET_CPUS=[string]$Cpus
 $env:IOS_SWEET_SECONDS=[string]$Seconds
-$env:IOS_SWEET_NETWORK=if($Network){'1'}else{'0'}
-$env:IOS_SWEET_NECP_TRACE=if($Network -and $TraceNetworkPath){'1'}else{'0'}
+$env:IOS_SWEET_NETWORK=if($networkEnabled){'1'}else{'0'}
+$env:IOS_SWEET_NECP_TRACE=if($networkEnabled -and $TraceNetworkPath){'1'}else{'0'}
+if($networkEnabled -and -not(Test-Path -LiteralPath (Join-Path $repo 'docker\network\iossweet-net-seed') -PathType Leaf)){
+    throw 'iOS networking helper is missing from the installer. Extract the complete ZIP again.'
+}
 & docker compose -p $project -f $compose config --quiet
 if ($LASTEXITCODE -ne 0) { throw 'Docker Compose configuration rejected.' }
 Write-Host 'Docker Compose configuration validated; private kernel/guest will be mounted read-only.'
@@ -114,9 +135,25 @@ if ($CheckOnly) {
     Write-Host 'Check only. No Docker guest was started.'
     return
 }
-if ($Network) { Write-Warning 'Experimental network support is not yet verified in iOS Safari.' }
-& docker compose -p $project -f $compose up --detach --build
-if ($LASTEXITCODE -ne 0) { throw 'Docker QEMU launch failed.' }
+$running=@(& docker compose -p $project -f $compose ps --status running -q ios-sweet)
+if($LASTEXITCODE -ne 0){throw 'Cannot inspect running iOS Sweet containers.'}
+if($running.Count -eq 0){
+    $os=Get-CimInstance Win32_OperatingSystem
+    if($os -and $os.FreePhysicalMemory -lt 3145728){
+        throw 'At least 3 GiB of available Windows RAM is required to start the emulator safely.'
+    }
+    & docker compose -p $project -f $compose build ios-sweet
+    if($LASTEXITCODE -ne 0){throw 'Docker QEMU image build failed.'}
+    if($networkEnabled){
+        Write-Host 'Preparing private iOS network configuration (first run only)...'
+        & docker compose -p $project -f $compose run --no-deps --rm --entrypoint /usr/local/bin/iossweet-prepare-network ios-sweet
+        if($LASTEXITCODE -ne 0){throw 'Could not prepare the private iOS network overlay. No guest was launched.'}
+    }
+    & docker compose -p $project -f $compose up --detach --no-build
+    if($LASTEXITCODE -ne 0){throw 'Docker QEMU launch failed.'}
+}else{
+    Write-Host 'iOS Sweet is already running; reusing the existing guest.'
+}
 if (-not (Test-Path -LiteralPath (Split-Path -Parent $settingsFile))) {
     $null=New-Item -ItemType Directory -Path (Split-Path -Parent $settingsFile) -Force
 }
@@ -125,6 +162,7 @@ $settings=[ordered]@{
     GuestDisk=$GuestDisk
     DeviceTree=$DeviceTree
     StateDirectory=$StateDirectory
+    Network=$networkEnabled
 }
 $settings | ConvertTo-Json | Set-Content -LiteralPath $settingsFile -Encoding UTF8
 Write-Host "Viewer: http://127.0.0.1:$Port/"
@@ -138,7 +176,7 @@ if (-not $NoShortcut) {
     $args='-NoProfile -ExecutionPolicy Bypass -File "'+$PSCommandPath+'"'
     $args+=' -KernelPath "'+$KernelPath+'" -GuestDisk "'+$GuestDisk+'" -DeviceTree "'+$DeviceTree+'" -StateDirectory "'+$StateDirectory+'"'
     $args+=' -Port '+$Port+' -Cpus '+$Cpus+' -Seconds '+$Seconds
-    if ($Network) { $args+=' -Network' }
+    if (-not $networkEnabled) { $args+=' -NoNetwork' }
     if ($TraceNetworkPath) { $args+=' -TraceNetworkPath' }
     $args+=' -Interactive'
     $link.Arguments=$args

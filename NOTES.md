@@ -461,3 +461,49 @@ What it took today (in order): 0058 HID services (Apple IOHIDFamily-1915 user cl
      cpu_init, before arm_vm_init.
   5. panic hook at top of panic_trap_to_debugger: va_copy + _doprnt(fmt, &copy, sweet_early_putc, 16).
   Verify with tools/xnu-cc.py (compile+symbols) and patch-order simulation before the single CI run.
+## Docker-only one-click install and DNS validation (2026-10-30)
+
+- Windows source: `D:\Projects\ios-sweet`, branch
+  `windows-qemu-virtio`. The one-click entry point is
+  `Install-iOS-Sweet.cmd` or desktop shortcut
+  `C:\Users\danho\Desktop\iOS Sweet (Docker).lnk`.
+- Clean Docker build completed: `ios-sweet-qemu:local` with one runtime
+  container `ios-sweet-qemu-ios-sweet-1`, the viewer on localhost port
+  8108, and a read-only mounted original 16 GiB Apple iOS disk. The
+  installer generates a separate state at `docker/local-state/oneclick`.
+  The in-container libguestfs preparation returned
+  `IOS_SWEET_NETWORK_READY`, preserving the original Apple
+  `ReportCrash` executable and installing only the small bootstrap in
+  the QCOW2 overlay.
+- Network-enabled XNU kernel 0099 SHA256:
+  `079a3d2d1849e965f9a055f5627d64e33eab94dd9fd26411cbc717037e52825c`
+  (locally staged at `xnu/out-qemu-network-0099/`, **not committed or
+  included in the code-only installer ZIP**). Own network bootstrap
+  binary SHA256:
+  `a759bc9f02ecdcd6b685660cd0d7dfe9ae0c5b4d2e552788a0a323c701094063`,
+  source at `tools/ios-network-seed.c`.
+- Actual fresh install reached the iOS 16 lock screen and SpringBoard.
+  Swiping up and launching Safari through the local QEMU viewer returned
+  HTTP 204 for touchscreen input, and Safari displayed `google.com`
+  in the address bar with a loading progress bar. PCAP then counted
+  **52 guest DNS packets, 10 TCP SYNs and 168 total TCP packets**.
+  Safari's page still appeared **blank white**, so end-to-end Safari page
+  rendering is not proven despite working system DNS/TCP.
+- Old project-only Docker objects removed: **16 containers**, old
+  701 MB image, unused Compose network. No project-named Docker volumes
+  existed; other workloads untouched. Removed **1,873.4 MB of old
+  disposable PCAP/QCOW2 testing folders** from `docker/local-state`.
+  Kept the original raw Apple disk, `stable` state and protected backups.
+- Full QEMU boot caused Windows free RAM to drop below 1 GiB while other
+  workloads were running. Only the iOS guest was then stopped via
+  `Start-IosSweet-Docker.ps1 -Stop`. Reclaiming clean Docker Desktop
+  Linux page cache returned host RAM to about 5 GiB without restarting
+  any other containers. Installer checks for at least 3 GiB free RAM
+  before a new boot. The previous additional Ubuntu WSL distro is not
+  required; leave Docker Desktop's own WSL backend intact.
+- The portable ZIP intentionally contains source, Dockerfiles, scripts,
+  and the own ARM64 bootstrap binary **only**. A different PC needs
+  Docker Desktop and the user's own prepared iOS root, network-enabled
+  XNU kernel and D22AP device tree; the file-picker prompts for them.
+  Do not commit any proprietary Apple userland, private captures,
+  device IDs, or credentials.
