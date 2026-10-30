@@ -13,6 +13,21 @@
 
 ## Network diagnostic correction (2026-10-30)
 
+### Resolver/socket service trace follow-up
+
+- After the Docker-only UI test, the existing 0096 trace captured **zero
+  browser socket/connect/connectx calls**, although MobileSafari and the
+  WebKit networking process requested viable NECP paths.
+- Widened the **diagnostic-only** kernel socket syscall trace to cover
+  `mDNSResponder`, `configd` and `networkd`, in addition to WebKit and
+  Safari. Limited to syscall name, family and error; no URLs, DNS queries,
+  packets or credentials are logged. Count cap raised to 600.
+- Rebuild with macOS CI, then run with a **separate** Docker overlay.
+  Specifically determine whether mDNSResponder initializes AF_INET/AF_INET6
+  sockets, whether configd attempts any, and whether Safari triggers DNS or
+  WebKit socket creation. Capture the real guest's packets and compare with
+  the host's successful HTTPS test. This does not by itself fix networking.
+
 ### Live Docker validation of combined socket/NECP kernel
 
 - GitHub Actions XNU workflow **41031874190**, commit `4252296`,
