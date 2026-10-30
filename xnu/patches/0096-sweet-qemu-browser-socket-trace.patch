@@ -1,6 +1,6 @@
 --- a/bsd/kern/uipc_syscalls.c
 +++ b/bsd/kern/uipc_syscalls.c
-@@ -106,6 +106,30 @@
+@@ -106,6 +106,36 @@
  #include <os/ptrtools.h>
  
  #include <os/log.h>
@@ -9,29 +9,35 @@
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
 +/* Diagnostic only: did userland actually try to create or connect a socket? */
 +static TUNABLE(uint32_t, sweet_qemu_network_trace, "sweet_qemu_network_trace", 0);
-+static unsigned sweet_net_trace_count;
++static unsigned sweet_net_trace_browser_count;
++static unsigned sweet_net_trace_dns_count;
++static unsigned sweet_net_trace_system_count;
 +static void
 +sweet_net_trace(proc_t p, const char *action, int family, int error)
 +{
-+    if (!sweet_qemu_network_trace || sweet_net_trace_count >= 600) return;
-+    char name[32];
++    if (!sweet_qemu_network_trace) return;
++    char name[32] = {0};
 +    proc_name(proc_pid(p), name, sizeof(name));
-+    /* proc_name is truncated at MAXCOMLEN. Trace browser and DNS daemon
-+       socket calls, never URLs, DNS queries, credentials or packet bodies. */
-+    if (strncmp(name, "com.apple.Web", 13) != 0 &&
-+        strcmp(name, "MobileSafari") != 0 &&
-+        strcmp(name, "mDNSResponder") != 0 &&
-+        strcmp(name, "configd") != 0 &&
-+        strcmp(name, "networkd") != 0) return;
-+    sweet_net_trace_count++;
-+    printf("SWEET NET TRACE: %s %s family=%d error=%d\n",
-+        name, action, family, error);
++    /* The DNS daemon can create hundreds of sockets before Safari runs.
++       Reserve an independent browser budget so those calls never mask
++       WebKit's actual socket/connect results. Log metadata only. */
++    if (strncmp(name, "com.apple.Web", 13) == 0 ||
++        strcmp(name, "MobileSafari") == 0) {
++        if (sweet_net_trace_browser_count++ >= 800) return;
++    } else if (strcmp(name, "mDNSResponder") == 0) {
++        if (sweet_net_trace_dns_count++ >= 20) return;
++    } else if (strcmp(name, "configd") == 0 ||
++        strcmp(name, "networkd") == 0) {
++        if (sweet_net_trace_system_count++ >= 60) return;
++    } else return;
++    printf("SWEET NET TRACE: %s pid=%d %s family=%d error=%d\n",
++        name, proc_pid(p), action, family, error);
 +}
 +#endif
  
  #if CONFIG_MACF_SOCKET_SUBSET
  #include <security/mac_framework.h>
-@@ -233,6 +257,9 @@
+@@ -233,6 +263,9 @@
      struct socket_args *uap,
      int32_ref_t retval)
  {
@@ -41,7 +47,7 @@
  	return socket_common(p, uap->domain, uap->type, uap->protocol,
  	           proc_selfpid(), retval, 0);
  }
-@@ -772,7 +799,13 @@
+@@ -772,7 +805,13 @@
  		goto out;
  	}
  
@@ -55,7 +61,7 @@
  
  	if (sa != NULL && sa != SA(&ss)) {
  		free_sockaddr(sa);
-@@ -929,8 +962,14 @@
+@@ -929,8 +968,14 @@
  		}
  	}
  
