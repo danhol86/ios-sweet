@@ -19,7 +19,8 @@ param(
     # Four vCPUs reproduced a kernel ticket-spinlock timeout between CPU 1
     # and CPU 3 after about an hour (2026-10-30). Default to stable UP mode.
     [ValidateRange(1,8)][int]$Cpus = 1,
-    [ValidateRange(60,7200)][int]$Seconds = 7200,
+    # 0 keeps QEMU and the viewer available until the user stops Docker.
+    [ValidateRange(0,86400)][int]$Seconds = 0,
     [switch]$Network,
     [switch]$NoNetwork,
     [switch]$TraceNetworkPath,

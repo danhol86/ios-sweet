@@ -153,6 +153,14 @@ def prepare_root(dest, by_name, parts, assets):
         subprocess.run(['guestunmount', str(mount)], check=False)
     if candidate.stat().st_size != (16 << 30):
         raise RuntimeError('Guest image size failed verification')
+    # The first-boot LaunchServices dependency on MobileGestalt
+    # UniqueDeviceID stalls a stock QEMU disk at the Apple logo. The
+    # private compatibility workaround is verified against the EXACT
+    # 16.7.16 dyld subcache digest; no modified Apple file is packaged.
+    subprocess.run([sys.executable,
+                    str(Path(__file__).with_name('Patch-IosSweet-MGCompat.py')),
+                    '--disk', str(candidate), '--assets-dir', str(assets)],
+                   check=True)
     for path in ('/sbin/launchd',
                  '/System/Library/xpc/launchd.plist',
                  '/Applications/MobileSafari.app'):

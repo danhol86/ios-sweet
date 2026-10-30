@@ -51,10 +51,20 @@ previously verified tree; a 16 GiB HFSX filesystem was built, checked with
 `fsck.hfsplus`, and ran the iOS root tweaks. A single clean QEMU guest
 booted that image through launchd and executed SpringBoard/backboardd,
 but **did not reach the interactive lock screen** during the initial
-several-minute smoke test. Earlier interactive images used a private
-MobileGestalt/LaunchServices compatibility workaround not yet present in
-this fresh build. The one-click installation and Safari are therefore
-**not yet end-to-end verified**. This is not a stable release.
+several-minute smoke test. Subsequent read-only comparison revealed that
+38 of 39 dyld cache files matched the older interactive image; subcache
+`.15` differed by just one four-byte ARM64 instruction at offset
+`0x1619f0c`. The SHA-256-gated patcher applies this QEMU-only
+MobileGestalt/LaunchServices workaround to newly generated *local* disks,
+not a public image. The second boot and Safari remain under verification.
+This is not a stable release.
+
+The new root also lacked all 13 standard system data containers present
+in the older interactive build. The updated root preparation creates
+these containers with fresh local UUIDs and the verified iOS 16 metadata
+schema (the synthetic test proves idempotency), then seeds the
+`mobileactivationd` activation data ark. This is an experimental
+QEMU-only first-boot compatibility step, not a copy of private device data.
 
 The container mounts all three supplied inputs **read-only** and uses the
 separate persistent `docker/local-state/oneclick/ios.qcow2` overlay
@@ -66,6 +76,9 @@ publishing active IPv4 and DNS state. No installed disk outside the overlay
 is modified; re-running setup verifies the bootstrap instead of duplicating
 it.
 This means an iOS reboot preserves state without changing the original disk.
+The default QEMU run duration is now unlimited (0 seconds means until
+explicitly stopped), preventing the viewer from disappearing after two
+hours while the container is running.
 Do not share the same overlay between two simultaneously running instances.
 The viewer binds only to localhost.
 

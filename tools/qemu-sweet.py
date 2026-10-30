@@ -254,7 +254,8 @@ def main():
     )
     ap.add_argument('payload', nargs='?', help='SWEETXNU payload binary (from mkpayload.py)')
     ap.add_argument('outdir', nargs='?', help='Output directory for fb.png, regs.txt, and logs')
-    ap.add_argument('--secs', type=float, default=20, help='Duration to run QEMU in seconds (default: 20)')
+    ap.add_argument('--secs', type=float, default=20,
+                    help='Duration in seconds (default: 20); 0 runs until stopped')
     ap.add_argument('--gdb', action='store_true', help='start halted, gdb stub on :1234, no timeout')
     ap.add_argument('--hmp', action='append', default=[], help='extra monitor command run after stop (repeatable), e.g. "x /8gx 0xfffffe..."')
     ap.add_argument('--cpu', default='cortex-a76', help='QEMU CPU model (default: cortex-a76)')
@@ -271,6 +272,8 @@ def main():
     ap.add_argument('--network', action='store_true', help='QEMU VirtIO MMIO Ethernet with user-mode NAT; requires networking kernel')
     ap.add_argument('--check-env', action='store_true', help='check QEMU installation and dependencies without running a payload')
     a = ap.parse_args()
+    if a.secs < 0:
+        ap.error('--secs must be zero (unlimited) or a positive duration')
 
     if a.check_env:
         ok = check_qemu_dependency(a.cpu)
@@ -387,7 +390,7 @@ def main():
             return 0
 
         t0 = time.time()
-        while p.poll() is None and time.time() - t0 < a.secs:
+        while p.poll() is None and (a.secs == 0 or time.time() - t0 < a.secs):
             if a.live_serial:
                 serial_pos = stream_serial_file(serial_file, serial_pos)
             time.sleep(0.2)

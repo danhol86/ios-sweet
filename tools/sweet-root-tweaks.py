@@ -27,10 +27,29 @@ screen (image versions v8-v14 in NOTES.md):
                   comes from its Hactivation branch, selected by the /chosen
                   security-status properties in tools/mkadt.py
 """
-import glob, os, plistlib, shutil, sys
+import glob, os, plistlib, shutil, sys, uuid
 
 BUILD, VERSION = '20H392', '16.7.16'
 MOBILE = 501
+# These identifiers are standard iOS system services, NOT copied metadata
+# or device identifiers. The first real iOS boot can create their containers
+# itself, but under QEMU software emulation those migrations are so slow they
+# may hold SpringBoard at the Apple logo indefinitely.
+SYSTEM_CONTAINER_IDENTIFIERS = (
+    'com.apple.icloud.findmydeviced',
+    'com.apple.appstored',
+    'com.apple.linkd',
+    'com.apple.springboard',
+    'com.apple.fairplayd.H2',
+    'com.apple.apsd',
+    'com.apple.mobileactivationd',
+    'com.apple.lsd',
+    'com.apple.softwareupdateservicesd',
+    'com.apple.adid',
+    'com.apple.akd',
+    'com.apple.backboardd',
+    'com.apple.remotemanagementd',
+)
 
 
 def load(path):
@@ -90,6 +109,38 @@ def find_container(root, kind, identifier):
     return None
 
 
+def seed_system_containers(root):
+    """Create only standard, synthetic QEMU service containers if missing.
+
+    Source format is MCM's iOS 16.7.16 on-disk schema. New random UUIDs are
+    generated locally; no old user's ID, data, or activation state is copied.
+    """
+    base = os.path.join(root, 'private/var/containers/Data/System')
+    count = 0
+    for identifier in SYSTEM_CONTAINER_IDENTIFIERS:
+        if find_container(root, 'Data/System', identifier):
+            continue
+        container_id = str(uuid.uuid4()).upper()
+        folder = os.path.join(base, container_id)
+        os.mkdir(folder, mode=0o755)
+        os.chown(folder, 0, 0)
+        os.chmod(folder, 0o755)
+        save(os.path.join(folder,
+                          '.com.apple.mobile_container_manager.metadata.plist'), {
+            'MCMMetadataActiveDPClass': -1,
+            'MCMMetadataContentClass': 12,
+            'MCMMetadataIdentifier': identifier,
+            'MCMMetadataInfo': {
+                'com.apple.MobileInstallation.ContentProtectionClass': -1,
+            },
+            'MCMMetadataSchemaVersion': 1,
+            'MCMMetadataUUID': container_id,
+            'MCMMetadataVersion': 6,
+        }, 0, 0, 0o644)
+        count += 1
+    print(f'Seeded {count} missing system containers (locally generated UUIDs)')
+
+
 def activation(root):
     c = find_container(root, 'Data/System', 'com.apple.mobileactivationd')
     if c is None:
@@ -128,6 +179,7 @@ def main():
     root = sys.argv[1]
     launchd(root)
     containers(root)
+    seed_system_containers(root)
     activation(root)
     audio(root)
     merge_pref(root, 'com.apple.migration', {

@@ -25,7 +25,12 @@ if ($LASTEXITCODE -ne 0) { throw 'Unable to list tracked files.' }
 $required=@('Install-iOS-Sweet.cmd','Start-iOS-Sweet-Docker.cmd','docker/compose.yml',
   'docker/Dockerfile','docker/entrypoint.sh','docs/ONE_CLICK_DEPLOY.md',
   'docker/prepare-network.sh','docker/network/iossweet-net-seed',
-  'tools/mkadt.py','tools/Start-IosSweet-Docker.ps1')
+  'docker/Dockerfile.assets','docker/prepare-assets.sh',
+  'tools/mkadt.py','tools/mkiosroot.sh','tools/remotezip.py',
+  'tools/adt.py','tools/sweet-root-tweaks.py','tools/qemu-sweet.py',
+  'tools/AutoPrepare-IosSweet.py','tools/Patch-IosSweet-MGCompat.py',
+  'tools/extract-im4p-adt.py','tools/Ensure-IosSweet-Docker.ps1',
+  'tools/Start-IosSweet-Docker.ps1','docs/GITHUB_INSTALL.md')
 foreach($name in $required){if($name -notin $names){throw "Missing tracked package component $name"}}
 $bad=@($names | Where-Object {$_ -match '(?i)(^Users/|^research/ipsw-x/|(^|/)(local-state|local-guest|local-config|local-assets)/|\.((qcow2|raw|vhdx|im4p|adt|ipsw|dmg|simg|img|p8|p12|ipa|mobileprovision))$)'})
 if($bad.Count){throw ('Private media paths found in tracked Git tree: '+($bad -join ', '))}
@@ -47,4 +52,4 @@ $manifest=$Destination+'.sha256'
 [IO.File]::WriteAllText($manifest,$hash+'  '+[IO.Path]::GetFileName($Destination)+"`n",[Text.UTF8Encoding]::new($false))
 Write-Host "Verified source-only ZIP: $Destination"
 Write-Host "SHA256 $hash"
-Write-Host 'Private prepared iOS guest disk, device tree and kernel must be added by the end user.'
+Write-Host 'No Apple OS or private media was bundled; the first-run Docker installer can prepare them locally from Apple firmware.'

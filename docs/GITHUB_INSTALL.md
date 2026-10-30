@@ -32,9 +32,16 @@ uploaded to this repository or Docker Hub.
 
 The source of this automatic preparation is
 `tools/AutoPrepare-IosSweet.py`, `tools/extract-im4p-adt.py`, and
-`docker/Dockerfile.assets`. This new path remains experimental until a
-fresh-from-IPSW guest has passed the same boot tests as the original
-prepared guest.
+`docker/Dockerfile.assets`. It also applies a **SHA-256-gated local
+QEMU-only MobileGestalt compatibility change** to the user's derived iOS
+16.7.16 disk. The source is `tools/Patch-IosSweet-MGCompat.py`; modified
+Apple binaries are never distributed or uploaded. Unsupported firmware
+versions are rejected rather than patched blindly. This path remains
+experimental until the iOS home screen is verified after fresh setup.
+To avoid the first-boot activation/LaunchServices data-container stall,
+`sweet-root-tweaks.py` also seeds the standard system container metadata
+with freshly generated local UUIDs and a synthetic QEMU activation state.
+It never copies identifiers or user data from a real device.
 
 ## Advanced: supply an existing prepared iOS disk
 
@@ -72,7 +79,9 @@ built iOS network bootstrap (with source alongside it).
 3. Open [http://127.0.0.1:8108/](http://127.0.0.1:8108/) or use the desktop
    shortcut **iOS Sweet (Docker)** that the installer creates.
 
-Use `Start-iOS-Sweet-Docker.cmd` to relaunch. To stop, run
+Use `Start-iOS-Sweet-Docker.cmd` to relaunch. The new Docker launcher
+defaults to keeping the viewer available until it is manually stopped.
+To stop, run
 `powershell.exe -NoProfile -File tools\Start-IosSweet-Docker.ps1 -Stop`
 from the project directory. The stop command affects only iOS Sweet.
 

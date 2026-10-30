@@ -13,3 +13,5 @@
 !tools/mkiosroot.sh
 !tools/AutoPrepare-IosSweet.py
 !tools/extract-im4p-adt.py
+!tools/Patch-IosSweet-MGCompat.py
+!tools/test-ios-system-containers.py
