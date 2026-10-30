@@ -13,6 +13,7 @@
 param(
   [switch]$CheckOnly,
   [switch]$Stop,
+  [switch]$SrgbDisplay,
   [switch]$NoBrowser
 )
 $ErrorActionPreference='Stop'
@@ -31,6 +32,18 @@ $other=@(Get-CimInstance Win32_Process -Filter "Name='qemu-system-aarch64.exe'" 
 if($other.Count){
   if($other.Count -eq 1 -and $other[0].ExecutablePath -and
       $other[0].ExecutablePath.StartsWith((Join-Path $repo 'windows-runtime\qemu'),[StringComparison]::OrdinalIgnoreCase)){
+    if($SrgbDisplay){
+      # Reopen an existing sRGB guest; never launch a second VM or silently
+      # substitute a guest booted with different virtual display properties.
+      $recordPath=Join-Path $repo 'windows-runtime\state\active-native.json'
+      if(-not (Test-Path -LiteralPath $recordPath)){
+        throw 'An iOS guest is running but its display mode cannot be verified. Refusing a duplicate.'
+      }
+      $record=Get-Content -LiteralPath $recordPath -Raw | ConvertFrom-Json
+      if(([int]$record.qemu_pid -ne [int]$other[0].ProcessId) -or (-not $record.srgb_display)){
+        throw 'The running guest does not match the requested sRGB mode. Stop it cleanly before changing display modes.'
+      }
+    }
     try {
       $response=Invoke-WebRequest -Uri 'http://127.0.0.1:8108/' -UseBasicParsing -TimeoutSec 3
       if($response.StatusCode -eq 200){
@@ -57,6 +70,7 @@ if($available -lt 6){
 }
 $launchArgs='"'+$script+'"'
 if($NoBrowser){$launchArgs+=' --no-browser'}
+if($SrgbDisplay){$launchArgs+=' --srgb-display'}
 $logDir=Join-Path $repo 'windows-runtime\logs'
 if(-not(Test-Path -LiteralPath $logDir)){New-Item -ItemType Directory -Path $logDir -Force|Out-Null}
 $stamp=Get-Date -Format 'yyyyMMdd_HHmmss_fff'

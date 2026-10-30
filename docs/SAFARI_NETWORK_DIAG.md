@@ -1,5 +1,44 @@
 # iOS Sweet / QEMU: Safari blank-page network investigation
 
+## Latest verified native Windows result (30 October 2026, 23:21 UTC)
+
+**Safari has now rendered a real external HTTPS page.** On the *single*
+running native Windows QEMU guest (`http://127.0.0.1:8108/`), tapping the
+Google Safari favorite reached `www.google.com`; a screenshot showed the
+Google consent dialog, page text, and Safari's HTTPS padlock. Navigating
+away and **forward** again re-rendered the same page and padlock. This
+supersedes the earlier reports below that Google never loads.
+
+The private `windows-runtime/state/windows-qemu-20261030-180638/network.pcap`
+showed several Google connections: one closed after a 517-byte TLS ClientHello
+and approximately 2.8 KB server flight, but a subsequent connection exchanged
+about 4,960 outbound and 10,043 inbound TCP payload bytes and rendered the
+Google page. **One aborted TLS flow does not prove all browser requests fail.**
+The first visible navigation was unusually slow; wait for actual rendering
+and inspect *all* follow-up connections before calling a test failed.
+
+A deterministic local HTTP control also passed. Safari visited
+`http://10.0.2.2:8765/`, and a Windows-local HTTP server recorded `GET /`
+with a successful 200/304. Safari rendered the green CSS background, followed
+by the expected `IOS_SWEET_HTTP_OK` text after a long delay. A richer HTML
+control then fetched `/raster.png` and `/probe-canary.txt` (both HTTP 200),
+verifying resource loading and JS `fetch` at the transport level. The fresh
+control's visual repaint was not conclusively observed before navigation.
+
+The successful guest had **`srgb_display=true`**, advertised by the synthetic
+QEMU `/product/artwork-display-gamut` override, and was booted with one ARM64
+CPU under QEMU TCG. The sRGB override was **not A/B-tested** against the
+default P3 mode for browsing, so it is *not established as the root-cause fix*.
+Web browsing is now **demonstrated**, but startup/painting latency and
+reliability across other sites remain open issues. No second guest was
+started, and the private Apple disk and unrelated Docker services were kept.
+
+The earlier kernel's single `sweet_net_trace_count >= 600` budget was
+exhausted by `mDNSResponder` socket calls. Commit `ebc43ae` reserves a
+separate browser trace budget; GitHub Actions XNU build run `41143670554`
+was started for that diagnostic. Do not replace the currently working kernel
+automatically with an untested diagnostic build.
+
 ## Reproduced condition
 
 - iOS 16.7.16 boots to SpringBoard and MobileSafari opens. The browser

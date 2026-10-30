@@ -1,5 +1,39 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## Latest Windows Safari and network result (30 October 2026, 23:21 UTC)
+
+- **Verified external HTTPS success:** active *single* Windows QEMU guest at
+  `http://127.0.0.1:8108/` (QEMU PID 71564, native run
+  `windows-runtime/state/windows-qemu-20261030-180638`, `srgb_display=true`).
+  Safari rendered Google's real HTTPS page, its consent dialog and padlock;
+  browser history forward navigation re-rendered it. Evidence screenshot is
+  private `windows-runtime/network-probe/google-forward.png`.
+- **Verified local WebKit HTTP:** Safari loaded `http://10.0.2.2:8765/`;
+  local HTTP server recorded HTML 200/304 and displayed green CSS background
+  and text after noticeable delay. A richer fixture fetched an image and JS
+  canary with HTTP 200. The final richer fixture was not visually confirmed
+  to repaint before leaving. Saved captures and fixture are ignored local
+  files under `windows-runtime/network-probe/`.
+- **TLS interpretation corrected:** single `www.google.com` TLS attempt with
+  517 outgoing and ~2.8 KB incoming bytes ended early, but another connection
+  moved 4,960 outgoing/10,043 incoming bytes and loaded the page. Inspect all
+  connections and actual screenshots; do not infer TLS failure from only the
+  first flow. Browser success does not establish speed or cold-boot stability.
+- Updated the synthetic QEMU-only sRGB launcher to reuse a matching running
+  instance and prevent duplicate QEMUs. Current `Start-iOS-Sweet-Windows.cmd`
+  defaults to the verified sRGB display mode. This configuration was not
+  A/B-tested against P3; causation is not established.
+- Found old kernel network tracing was saturated by `mDNSResponder` events.
+  Independent browser/DNS/service budgets committed as `ebc43ae`, pushed to
+  fork branch `windows-qemu-virtio`. Triggered GitHub Actions XNU run
+  `41143670554` for next diagnostic; **do not swap the current working
+  kernel/disk automatically**. `tools/diagnose-webkit-flows.py` reports
+  sanitized TCP flow summaries. No Docker or iOS Apple system image touched.
+- Next: verify reliable Google reload and a second independent HTTPS site;
+  check real cold-boot repeatability only when a clean guest stop/restart is
+  safe. Investigate severe iOS TCG latency and stale framebuffer repaints.
+  Preserve prior tests, protected source images, local captures and backups.
+
 ## Windows QEMU network continuation (2026-10-29 late evening)
 
 - Windows checkout C:\Users\danho\Desktop\ios-sweet, branch windows-qemu-virtio. Verified 0091 kernel (GitHub Actions 40973551949, SHA256 2730146e142ffea88e904f53f7bb3692eb63156ddf3c3799ba46a10eb9524456) is at xnu/out-qemu-0091/kernel.development.sweet.

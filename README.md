@@ -54,6 +54,14 @@ The dedicated iOS Sweet Docker containers, images and generated firmware
 working files were removed. Unrelated Docker Desktop services were
 left running.
 
+**Updated 30 October 2026:** A later live Windows run (with the optional
+software sRGB display mode) successfully rendered Google's HTTPS page and
+consent dialog in Safari. A local HTTP control also loaded HTML, CSS,
+text, an image and a JavaScript-requested resource. This establishes that
+browser networking and rendering *can* work, though the unaccelerated
+ARM64 guest is still extremely slow. Repeatability across websites and
+fresh boots is not yet fully validated; see `docs/SAFARI_NETWORK_DIAG.md`.
+
 > **Physical-phone installation only:** Experimental bring-up, not a usable phone OS. Many things are missing or stubbed (see below), and Apple's security model is mostly switched off. Flashing the phone installs into the `userdata` partition and so **erases Android's user data**. The Windows/Docker installer does not flash a phone.
 
 ## What works

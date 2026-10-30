@@ -76,6 +76,18 @@ and drag gestures over the same VirtIO tablet as the Docker version.
   `www.google.com` DNS, TCP and TLS ServerHello; Safari still did **not**
   reliably render a web page. That is an iOS WebKit/crypto/rendering issue
   to investigate separately. Native Windows QEMU does not fix it by itself.
+- **Later live retest (30 October 2026, 23:21 UTC):** The single Windows QEMU
+  guest loaded Google's HTTPS page in Safari, showed its cookie-consent
+  dialog and HTTPS padlock, and re-rendered the page from Safari history.
+  A controlled HTTP page at `10.0.2.2:8765` also fetched HTML, an image,
+  and a JavaScript-requested canary. CPU-only ARM64 emulation remains very
+  slow and some repaints appear substantially delayed. This was tested with
+  the optional **sRGB virtual display**; it was not tested against P3 in
+  the same conditions. See `SAFARI_NETWORK_DIAG.md` for packet evidence.
+- The Windows double-click launcher now selects the verified sRGB guest
+  configuration and reuses an already-running guest of that mode, rather
+  than launching a second VM. This display mode applies only to synthetic
+  Windows QEMU; physical-device firmware is never changed by the launcher.
 - The redundant QEMU installation on C: was removed after the D:-resident
   QEMU executables were checksum-verified and tested. All three dedicated
   iOS Sweet Docker image tags, the guest container and project network,

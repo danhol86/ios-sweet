@@ -202,9 +202,13 @@ def prepare(args, state, qemu_bin, qemu_img, require_ram=True):
         raise RuntimeError('Existing native run directory: '+str(run))
     run.mkdir(parents=True)
     qemu_adt = run / 'qemu.adt'
-    subprocess.run([sys.executable, str(TOOL / 'mkadt.py'),
-                    str(qemu_adt), '--qemu', '--highmem', '--qemu-cpus=1'],
+    adt_cmd = [sys.executable, str(TOOL / 'mkadt.py'),
+               str(qemu_adt), '--qemu', '--highmem', '--qemu-cpus=1']
+    if args.srgb_display:
+        adt_cmd.append('--qemu-srgb-display')
+    subprocess.run(adt_cmd,
                    check=True, timeout=60)
+    log('NATIVE_QEMU_DISPLAY_GAMUT='+('sRGB_EXPERIMENT' if args.srgb_display else 'P3_ORIGINAL'))
     cmdline = (
         'debug=0xc serial=3 cpus=1 keepsyms=1 -enable_kprintf_spam '
         '-noprogress rd=virtiodisk0 unentitled_ios_sim_launch=1 rootrw=1 '
@@ -322,7 +326,8 @@ def run_locked(args, state, qemu_bin, qemu_img):
         threading.Thread(target=server.serve_forever, daemon=True).start()
         (state / 'active-native.json').write_text(json.dumps({
             'qemu_pid': process.pid, 'qmp_port': args.qmp_port,
-            'viewer_port': args.port, 'run': str(run)}, indent=2))
+            'viewer_port': args.port, 'run': str(run),
+            'srgb_display': args.srgb_display}, indent=2))
         log(f'NATIVE_WINDOWS_VIEWER_READY=http://127.0.0.1:{args.port}/')
         if not args.no_browser:
             webbrowser.open(f'http://127.0.0.1:{args.port}/')
@@ -357,6 +362,8 @@ def main():
     parser.add_argument('--port', type=int, default=8108)
     parser.add_argument('--qmp-port', type=int, default=4444)
     parser.add_argument('--no-browser', action='store_true')
+    parser.add_argument('--srgb-display', action='store_true',
+                        help='experiment: advertise an 8-bit sRGB screen instead of iPhone X P3 in synthetic QEMU /product ADT')
     parser.add_argument('--check', action='store_true', help='validate native Windows dependencies without starting or stopping a guest')
     parser.add_argument('--prepare-only', action='store_true',
                         help='build QEMU RAM/boot images using native Windows Python without starting a guest or changing any iOS disk')
