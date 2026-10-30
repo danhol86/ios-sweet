@@ -11,7 +11,7 @@ from pathlib import Path
 import struct
 import sys
 
-TRACK = ('google.com', 'example.com')
+TRACK = ('google.com', 'example.com', 'neverssl.com')
 
 
 def tls_sni(payload):
@@ -175,6 +175,8 @@ def analyse(filename):
     print('TLS_CLIENT_HELLOS', sum(x.get('client_hello', 0) for x in streams.values()))
     print('TLS_SERVER_HELLOS', sum(x.get('server_hello', 0) for x in streams.values()))
     print('TLS_ALERTS', sum(x.get('tls_alert', 0) for x in streams.values()))
+    print('HTTP_REQUESTS', sum(x.get('http_request', 0) for x in streams.values()))
+    print('HTTP_RESPONSES', sum(x.get('http_response', 0) for x in streams.values()))
     print('TLS_SNI_CATEGORIES', dict(tls_names))
     print('GOOGLE_CONNECTIONS', {ip: dict(streams[ip]) for ip in sorted(google_ips)
           if ip in streams})

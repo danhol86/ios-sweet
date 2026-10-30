@@ -102,3 +102,18 @@ The private Windows packet traces are saved under
 `windows-runtime/state/windows-qemu-*/network.pcap`; the native
 kernel console can be inspected by passing
 `--qmp-tcp tcp://127.0.0.1:4444` to `qemu-console-log.py`.
+
+### Plain HTTP control experiment
+
+Safari was directed to `neverssl.com` for a plain HTTP test. Its URL bar
+changed to the site's subdomain, but the page remained white. The later
+native capture showed 21 outbound TCP port-80 connections and Google
+DNS/TLS traffic. The basic PCAP parser found **zero recognizable HTTP
+request starts and zero HTTP response starts**. This parser does not
+reassemble TCP streams, so these are indicators, not definitive proof
+that no application data was transferred.
+
+The blank page is therefore **not explained by TLS alone**. Next, trace
+WebKit Networking's request execution and its IPC to the content process
+as well as rendering errors. The sanitized analyzer now emits aggregate
+HTTP request and response counts and recognizes `neverssl.com` DNS.

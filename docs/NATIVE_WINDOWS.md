@@ -76,6 +76,11 @@ and drag gestures over the same VirtIO tablet as the Docker version.
   `www.google.com` DNS, TCP and TLS ServerHello; Safari still did **not**
   reliably render a web page. That is an iOS WebKit/crypto/rendering issue
   to investigate separately. Native Windows QEMU does not fix it by itself.
+- The redundant QEMU installation on C: was removed after the D:-resident
+  QEMU executables were checksum-verified and tested. All three dedicated
+  iOS Sweet Docker image tags, the guest container and project network,
+  and approximately 23 GiB of unused generated media were cleaned up.
+  The 34 unrelated running Docker services were preserved.
 
 This is experimental engineering code, not a finished iOS Simulator or an
 Apple-supported virtualization environment.
