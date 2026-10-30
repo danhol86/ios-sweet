@@ -13,6 +13,7 @@ seconds="$(printenv SWEET_QEMU_SECONDS || true)"
 cpus="$(printenv SWEET_QEMU_CPUS || true)"
 debug_console="$(printenv SWEET_QEMU_DEBUG_CONSOLE || true)"
 network="$(printenv SWEET_QEMU_NETWORK || true)"
+necp_trace="$(printenv SWEET_QEMU_NECP_TRACE || true)"
 adt_override="$(printenv SWEET_QEMU_ADT || true)"
 sample="$(printenv SWEET_QEMU_SAMPLE || true)"
 sample_delay="$(printenv SWEET_QEMU_SAMPLE_DELAY || true)"
@@ -27,6 +28,7 @@ base="$(printenv SWEET_QEMU_OUTPUT_BASE || true)"
 [[ -n "$cpus" ]] || cpus="1"
 [[ -n "$debug_console" ]] || debug_console="0"
 [[ -n "$network" ]] || network="0"
+[[ -n "$necp_trace" ]] || necp_trace="0"
 # XNU proc_name uses MAXCOMLEN=16: MobileGestaltHelper is
 # "MobileGestaltHel" in the process sampler. Use its truncated name.
 [[ -n "$sample" ]] || sample="SpringBoard,lsd,MobileGestaltHel,backboardd"
@@ -84,6 +86,9 @@ network_delegate_flag=""
 if [[ "$network" == "1" ]]; then
     # Only the opt-in QEMU networking kernel grants socket delegation.
     network_delegate_flag="sweet_qemu_network_delegate=1"
+    if [[ "$necp_trace" == "1" ]]; then
+        network_delegate_flag="$network_delegate_flag sweet_qemu_necp_trace=1"
+    fi
 fi
 python3 "$repo/tools/mkpayload.py" "$kernel" "$run/qemu.adt" "$run/payload.bin" \
     --cmdline "debug=0xc serial=3 cpus=$cpus keepsyms=1 -enable_kprintf_spam -noprogress rd=virtiodisk0 unentitled_ios_sim_launch=1 rootrw=1 launchd_unsecure_cache=1 ignition_level=1 wdt_test=no_user_checkin wdt=-1 sweetsample=$sample sweetsample_delay=$sample_delay sweetsample_interval=$sample_interval $fbarg $smp_flag $network_delegate_flag"

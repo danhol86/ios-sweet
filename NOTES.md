@@ -1,3 +1,8 @@
+## QEMU NECP path trace experiment (2026-10-30)
+
+- Current QEMU kernel 0095 publishes `SweetQemuEthernetController -> IONetworkInterface` and en0, ARP and DNS work, but Safari still emits no TCP SYN. A separate disposable guest test (`tools/seed-qemu-network-registry.py`) seeded `NetworkInterfaces.plist` with the exact IOService path and MAC; iOS persisted it and added Model=D22AP after boot, yet Safari remained blank and the packet capture contained no TCP. Repro folder `/home/ios-sweet-test/desktop-qemu-20261030-073238`; backing raw/known-good GUI overlays were not altered.
+- `0094-sweet-qemu-necp-path-trace.patch` logs NECP open/client-action result/match-policy for MobileSafari, truncated WebKit process names, networkd and configd. It logs no URL, token or user data. Guarded both by SWEET board config and `sweet_qemu_necp_trace=1`, which the QEMU runner sets only when `SWEET_QEMU_NETWORK=1 SWEET_QEMU_NECP_TRACE=1`. This is diagnostics **not** a network fix.
+- Local XNU saved CI toolchain `necp_client.c` compiled as ARM64 with zero errors and patch applied cleanly. Next: macOS Actions kernel build, SHA verify, run on a fresh **private network overlay**, open Safari HTTP/HTTPS, correlate `SWEET NECP:` lines and packet capture. Test user-space route/reachability logic next if NECP returns 0/no decisions. Never claim networking works based solely on the built-in kernel DNS probe.
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
 ## QEMU iOS application networking (2026-10-30, isolated branch)
