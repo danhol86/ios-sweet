@@ -197,6 +197,13 @@ int main(void)
        Persist results in the disposable guest for offline inspection. */
     int logfile = open("/private/var/tmp/iossweet-netprobe.log",
                        O_WRONLY | O_CREAT | O_APPEND | O_SYNC, 0600);
+    int log_errno = errno;
+    if (logfile < 0) {
+        /* Some iOS service sandboxes forbid creating files in /var/tmp.
+           The test image has a world-writable /dev/console; use it to
+           retain diagnostics in QEMU's local kernel/console capture. */
+        logfile = open("/dev/console", O_WRONLY | O_NOCTTY);
+    }
     if (logfile >= 0) {
         (void)dup2(logfile, STDOUT_FILENO);
         (void)dup2(logfile, STDERR_FILENO);
@@ -205,6 +212,8 @@ int main(void)
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
     puts("IOS_SWEET_NETWORK_PROBE_START");
+    printf("log_file_open_errno=%d log_target_available=%d\n",
+           log_errno, logfile >= 0);
     timestamp();
     for (int attempt = 1; attempt <= 4; ++attempt) {
         printf("attempt=%d\n", attempt);
