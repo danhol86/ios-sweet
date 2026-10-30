@@ -57,6 +57,14 @@
   Safari's absence of socket traffic. **Not yet proven as the sole
   fault.** Adding cosmetic IORegistry properties or returning fabricated
   success to ifnamer is not a proper fix.
+- **Platform caveat:** the iOS 16 launchd service inventory extracted from
+  the private image contains no service named `ifnamer`, and the 0098
+  captured console has no `exec ifnamer`, while `configd` and
+  `mDNSResponder` do start. The referenced ifnamer source illustrates
+  the traditional Apple networking integration contract but is not proof
+  that *this iOS userland* executes that same macOS daemon. Inspect the
+  actual iOS configd/networkd discovery path or symbols before porting
+  a large IONetworkingFamily implementation.
 - Implement or port a real `IONetworkStack` + network interface registration
   path that associates the existing QEMU VirtIO BSD `en0` with a genuine
   IOKit network-interface service **without creating a second ifnet**.
