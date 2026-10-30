@@ -11,6 +11,27 @@
 - Local XNU saved CI toolchain `necp_client.c` compiled as ARM64 with zero errors and patch applied cleanly. Next: macOS Actions kernel build, SHA verify, run on a fresh **private network overlay**, open Safari HTTP/HTTPS, correlate `SWEET NECP:` lines and packet capture. Test user-space route/reachability logic next if NECP returns 0/no decisions. Never claim networking works based solely on the built-in kernel DNS probe.
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## Network diagnostic correction (2026-10-30)
+
+- Docker-only iOS networking is **not working yet**. The isolated kernel 0097
+  run has QEMU Ethernet, DNS replies, and NECP browser path reports
+  `flags=0x100024 policy=0 ifindex=4 reason=0`, but Safari still shows a blank
+  page and packet capture has no TCP SYN.
+- The `qemu-net-ioreg-probe` branch used to build kernel 0097 has the NECP
+  diagnostics but **does not contain** the older
+  `0092-sweet-qemu-network-syscall-trace.patch`. Additionally, that older
+  trace's full 16-character `com.apple.WebKit` prefix fails if `proc_name`
+  truncates the process name at `MAXCOMLEN=16`. Therefore, previous absence
+  of a WebKit socket trace **did not establish** an absence of socket calls.
+- New `0096-sweet-qemu-browser-socket-trace.patch` combines socket/connect/
+  connectx observations with the existing NECP path/result trace and matches
+  WebKit using a short `com.apple.Web` prefix. It is diagnostic only:
+  does not grant new capabilities or change routing. Build through macOS
+  GitHub Actions on this branch, then test the resulting kernel with
+  `-Network -TraceNetworkPath` using a fresh Docker state directory, separate
+  from the stable GUI 0086 overlay. Confirm Safari web page *and* outbound
+  packets before declaring connectivity fixed.
+
 ## QEMU iOS application networking (2026-10-30, isolated branch)
 
 - `qemu-net-ioreg-probe` is an independent Windows worktree so other ongoing tests on `windows-qemu-virtio` are untouched. The original Apple root image, the interactive 0086 overlay and the Redmi phone are not modified.

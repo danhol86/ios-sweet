@@ -1,0 +1,69 @@
+--- a/bsd/kern/uipc_syscalls.c
++++ b/bsd/kern/uipc_syscalls.c
+@@ -106,6 +106,27 @@
+ #include <os/ptrtools.h>
+ 
+ #include <os/log.h>
++#include <kern/startup.h>
++
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++/* Diagnostic only: did userland actually try to create or connect a socket? */
++static TUNABLE(uint32_t, sweet_qemu_network_trace, "sweet_qemu_network_trace", 0);
++static unsigned sweet_net_trace_count;
++static void
++sweet_net_trace(proc_t p, const char *action, int family, int error)
++{
++    if (!sweet_qemu_network_trace || sweet_net_trace_count >= 300) return;
++    char name[32];
++    proc_name(proc_pid(p), name, sizeof(name));
++    /* proc_name is limited by MAXCOMLEN (usually 16), so match a short prefix. Keep browser
++       and WebKit tracing so mDNSResponder startup cannot exhaust the log. */
++    if (strncmp(name, "com.apple.Web", 13) != 0 &&
++        strcmp(name, "MobileSafari") != 0) return;
++    sweet_net_trace_count++;
++    printf("SWEET NET TRACE: %s %s family=%d error=%d\n",
++        name, action, family, error);
++}
++#endif
+ 
+ #if CONFIG_MACF_SOCKET_SUBSET
+ #include <security/mac_framework.h>
+@@ -233,6 +254,9 @@
+     struct socket_args *uap,
+     int32_ref_t retval)
+ {
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++    sweet_net_trace(p, "socket", uap->domain, 0);
++#endif
+ 	return socket_common(p, uap->domain, uap->type, uap->protocol,
+ 	           proc_selfpid(), retval, 0);
+ }
+@@ -772,7 +796,13 @@
+ 		goto out;
+ 	}
+ 
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++    sweet_net_trace(p, "connect-attempt", sa ? sa->sa_family : 0, 0);
++#endif
+ 	error = connectit(so, sa);
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++    sweet_net_trace(p, "connect-result", sa ? sa->sa_family : 0, error);
++#endif
+ 
+ 	if (sa != NULL && sa != SA(&ss)) {
+ 		free_sockaddr(sa);
+@@ -929,8 +959,14 @@
+ 		}
+ 	}
+ 
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++    sweet_net_trace(p, "connectx-attempt", dst ? dst->sa_family : 0, 0);
++#endif
+ 	error = connectitx(so, src, dst, p, ep.sae_srcif, uap->associd,
+ 	    &cid, auio, uap->flags, &bytes_written);
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++    sweet_net_trace(p, "connectx-result", dst ? dst->sa_family : 0, error);
++#endif
+ 	if (error == ERESTART) {
+ 		error = EINTR;
+ 	}
