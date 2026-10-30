@@ -128,6 +128,8 @@ static void try_private_dns_store(void)
        This runs exclusively on a disposable, locally-owned iOS disk. */
     typedef void *(*create_fn)(CFAllocatorRef, CFStringRef, void *, void *);
     typedef Boolean (*set_fn)(void *, CFStringRef, CFPropertyListRef);
+    typedef int (*scerror_fn)(void);
+    typedef CFPropertyListRef (*copy_fn)(void *, CFStringRef);
     void *framework = dlopen(
         "/System/Library/Frameworks/SystemConfiguration.framework/SystemConfiguration",
         RTLD_LAZY);
@@ -135,6 +137,12 @@ static void try_private_dns_store(void)
         framework ? framework : RTLD_DEFAULT, "SCDynamicStoreCreate");
     set_fn set = (set_fn)dlsym(
         framework ? framework : RTLD_DEFAULT, "SCDynamicStoreSetValue");
+    scerror_fn scerror = (scerror_fn)dlsym(
+        framework ? framework : RTLD_DEFAULT, "SCError");
+    copy_fn copy = (copy_fn)dlsym(
+        framework ? framework : RTLD_DEFAULT, "SCDynamicStoreCopyValue");
+    printf("private_dns_store uid=%ld euid=%ld error_symbol=%d copy_symbol=%d\n",
+           (long)getuid(), (long)geteuid(), scerror != NULL, copy != NULL);
     printf("private_dns_store create_symbol=%d set_symbol=%d\n",
            create != NULL, set != NULL);
     if (!create || !set) {
@@ -143,9 +151,23 @@ static void try_private_dns_store(void)
     }
     void *store = create(NULL, CFSTR("iossweet-test-dns"), NULL, NULL);
     if (!store) {
-        puts("private_dns_store create_failed");
+        printf("private_dns_store create_failed sc_error=%d\n",
+               scerror ? scerror() : -1);
         dlclose(framework);
         return;
+    }
+    if (copy) {
+        const CFStringRef keys[3] = {
+            CFSTR("State:/Network/Global/DNS"),
+            CFSTR("State:/Network/Global/IPv4"),
+            CFSTR("State:/Network/Service/CA9E6055-8C86-514A-B8BE-57D7F8A04B1B/DNS")
+        };
+        for (unsigned i = 0; i < 3; ++i) {
+            CFPropertyListRef entry = copy(store, keys[i]);
+            printf("private_dns_store existing_key=%u present=%d sc_error=%d\n",
+                   i, entry != NULL, scerror ? scerror() : -1);
+            if (entry) CFRelease(entry);
+        }
     }
     CFMutableDictionaryRef dns = CFDictionaryCreateMutable(
         NULL, 0, &kCFTypeDictionaryKeyCallBacks,
@@ -156,11 +178,13 @@ static void try_private_dns_store(void)
     CFDictionarySetValue(dns, CFSTR("ServerAddresses"), servers);
     CFDictionarySetValue(dns, CFSTR("InterfaceName"), CFSTR("en0"));
     Boolean ok = set(store, CFSTR("State:/Network/Global/DNS"), dns);
-    printf("private_dns_store global_dns_set=%d\n", (int)ok);
+    printf("private_dns_store global_dns_set=%d sc_error=%d\n",
+           (int)ok, scerror ? scerror() : -1);
     CFStringRef key = CFSTR(
         "State:/Network/Service/CA9E6055-8C86-514A-B8BE-57D7F8A04B1B/DNS");
     ok = set(store, key, dns);
-    printf("private_dns_store service_dns_set=%d\n", (int)ok);
+    printf("private_dns_store service_dns_set=%d sc_error=%d\n",
+           (int)ok, scerror ? scerror() : -1);
     CFRelease(servers);
     CFRelease(dns);
     CFRelease((CFTypeRef)store);
