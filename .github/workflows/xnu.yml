@@ -137,7 +137,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: Build unsigned-platform diagnostic for iOS arm64
+      - name: Build native iOS network diagnostic and startup seeder
         run: |
           set -euo pipefail
           SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
@@ -148,8 +148,15 @@ jobs:
             tools/ios-net-probe.c -framework SystemConfiguration -framework CoreFoundation \
             -o output/iossweet-net-probe
           codesign --force --sign - output/iossweet-net-probe
+          xcrun --sdk iphoneos clang \
+            -arch arm64 -miphoneos-version-min=16.0 -isysroot "$SDK" \
+            -O2 -Wall -Wextra -Werror \
+            tools/ios-network-seed.c -framework SystemConfiguration -framework CoreFoundation \
+            -o output/iossweet-net-seed
+          codesign --force --sign - output/iossweet-net-seed
           file output/iossweet-net-probe
-          shasum -a 256 output/iossweet-net-probe > output/SHA256SUMS
+          file output/iossweet-net-seed
+          shasum -a 256 output/iossweet-net-probe output/iossweet-net-seed > output/SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: ios-arm64-net-probe
