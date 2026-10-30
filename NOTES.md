@@ -65,6 +65,17 @@
   that *this iOS userland* executes that same macOS daemon. Inspect the
   actual iOS configd/networkd discovery path or symbols before porting
   a large IONetworkingFamily implementation.
+- Specifically, `ios-launchd.plist` lists
+  `com.apple.configd` (`/usr/libexec/configd`) with Mach services
+  `com.apple.SystemConfiguration.DNSConfiguration`,
+  `com.apple.SystemConfiguration.IPMonitorControl` and
+  `com.apple.network.IPConfiguration`; and
+  `com.apple.mDNSResponder.reloaded` (`/usr/sbin/mDNSResponder`)
+  with DNS-SD/DNS-proxy Mach services. There is **no networkd LaunchDaemon**
+  in this guest inventory, and the 0098 console has no
+  `exec networkd`. Test actual configd/mDNSResponder communication and
+  interface DNS publication in this iOS image rather than relying on a
+  non-existent standalone networkd process.
 - Implement or port a real `IONetworkStack` + network interface registration
   path that associates the existing QEMU VirtIO BSD `en0` with a genuine
   IOKit network-interface service **without creating a second ifnet**.
