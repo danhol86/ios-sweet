@@ -81,10 +81,20 @@ if (-not $StateDirectory) {
 if ($KernelPath -notmatch '^[A-Za-z]:\\' -or $GuestDisk -notmatch '^[A-Za-z]:\\') { throw 'Kernel and guest disk must be on a local Windows drive shared with Docker.' }
 if ($DeviceTree -notmatch '^[A-Za-z]:\\') { throw 'Device tree must be on a local Windows drive shared with Docker.' }
 if (-not (Test-Path -LiteralPath $StateDirectory)) {
-    if ($CheckOnly) { throw "State directory missing: $StateDirectory (create it for deployment)" }
-    $null=New-Item -ItemType Directory -Path $StateDirectory -Force
+    if ($CheckOnly) {
+        $candidate=[IO.Path]::GetFullPath($StateDirectory)
+        if ($candidate -notmatch '^[A-Za-z]:\\' -or -not (Test-Path -LiteralPath ([IO.Path]::GetPathRoot($candidate)))) {
+            throw "State directory is not on an available local drive: $StateDirectory"
+        }
+        Write-Host "Check only: deployment will create state directory $candidate."
+        $StateDirectory=$candidate
+    } else {
+        $null=New-Item -ItemType Directory -Path $StateDirectory -Force
+    }
 }
-$StateDirectory=(Resolve-Path -LiteralPath $StateDirectory).Path
+if (Test-Path -LiteralPath $StateDirectory) {
+    $StateDirectory=(Resolve-Path -LiteralPath $StateDirectory).Path
+}
 if ($StateDirectory -notmatch '^[A-Za-z]:\\') { throw 'State directory must be on a local Windows drive.' }
 $env:IOS_SWEET_KERNEL=$KernelPath.Replace([char]92,[char]47)
 $env:IOS_SWEET_DISK=$GuestDisk.Replace([char]92,[char]47)
