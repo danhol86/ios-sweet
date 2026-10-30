@@ -20,7 +20,6 @@
 #include <time.h>
 #include <unistd.h>
 #include <SystemConfiguration/SCNetworkReachability.h>
-#include <SystemConfiguration/SCDynamicStore.h>
 
 static void timestamp(void)
 {
@@ -97,7 +96,7 @@ static void direct_connect(void)
     close(fd);
 }
 
-static int dns_lookup(void)
+static void dns_lookup(void)
 {
     struct addrinfo hints = {0}, *results = NULL;
     hints.ai_family = AF_INET;
@@ -118,50 +117,6 @@ static int dns_lookup(void)
         }
         freeaddrinfo(results);
     }
-    return rc;
-}
-
-static void publish_test_dns(void)
-{
-    /* Diagnostic overlay only: publish the existing QEMU resolver into
-       configd's active state, without changing iOS system preferences. */
-    SCDynamicStoreRef store = SCDynamicStoreCreate(
-        NULL, CFSTR("iossweet-netprobe"), NULL, NULL);
-    if (!store) {
-        printf("dns_store_create failed sc_error=%d\n", SCError());
-        return;
-    }
-    CFMutableDictionaryRef dns = CFDictionaryCreateMutable(
-        NULL, 0, &kCFTypeDictionaryKeyCallBacks,
-        &kCFTypeDictionaryValueCallBacks);
-    const void *servers[1] = {CFSTR("10.0.2.3")};
-    CFArrayRef addresses = CFArrayCreate(
-        NULL, servers, 1, &kCFTypeArrayCallBacks);
-    CFDictionarySetValue(dns, CFSTR("ServerAddresses"), addresses);
-    CFDictionarySetValue(dns, CFSTR("InterfaceName"), CFSTR("en0"));
-    const CFStringRef service = CFSTR("CA9E6055-8C86-514A-B8BE-57D7F8A04B1B");
-    CFStringRef serviceDNS = CFStringCreateWithFormat(
-        NULL, NULL, CFSTR("State:/Network/Service/%@/DNS"), service);
-    Boolean ok = SCDynamicStoreSetValue(store, serviceDNS, dns);
-    printf("dns_store_service success=%d sc_error=%d\n", (int)ok, SCError());
-    ok = SCDynamicStoreSetValue(
-        store, CFSTR("State:/Network/Global/DNS"), dns);
-    printf("dns_store_global success=%d sc_error=%d\n", (int)ok, SCError());
-
-    CFMutableDictionaryRef ipv4 = CFDictionaryCreateMutable(
-        NULL, 0, &kCFTypeDictionaryKeyCallBacks,
-        &kCFTypeDictionaryValueCallBacks);
-    CFDictionarySetValue(ipv4, CFSTR("PrimaryService"), service);
-    CFDictionarySetValue(ipv4, CFSTR("PrimaryInterface"), CFSTR("en0"));
-    CFDictionarySetValue(ipv4, CFSTR("Router"), CFSTR("10.0.2.2"));
-    ok = SCDynamicStoreSetValue(
-        store, CFSTR("State:/Network/Global/IPv4"), ipv4);
-    printf("ipv4_store_global success=%d sc_error=%d\n", (int)ok, SCError());
-    CFRelease(ipv4);
-    CFRelease(serviceDNS);
-    CFRelease(addresses);
-    CFRelease(dns);
-    CFRelease(store);
 }
 
 int main(void)
@@ -183,13 +138,7 @@ int main(void)
         printf("attempt=%d\n", attempt);
         interfaces();
         direct_connect();
-        int result = dns_lookup();
-        if (attempt == 1 && result != 0) {
-            publish_test_dns();
-            sleep(3);
-            puts("dns_after_dynamic_store:");
-            (void)dns_lookup();
-        }
+        dns_lookup();
         reachability();
         if (attempt != 4) sleep(10);
     }
