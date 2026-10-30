@@ -266,6 +266,8 @@ def main():
     ap.add_argument('--write-disk', action='store_true', help='persist changes to --disk (default: QEMU copy-on-write snapshot)')
     ap.add_argument('--overlay', help='QCOW2 persistent writable overlay with --disk as its unchanged raw backing file')
     ap.add_argument('--tablet', action='store_true', help='attach a VirtIO tablet for future iOS touch input')
+    ap.add_argument('--qemu-log', default='int,guest_errors,unimp',
+                    help='QEMU -d log categories; use guest_errors,unimp for low-volume logs')
     ap.add_argument('--network', action='store_true', help='QEMU VirtIO MMIO Ethernet with user-mode NAT; requires networking kernel')
     ap.add_argument('--check-env', action='store_true', help='check QEMU installation and dependencies without running a payload')
     a = ap.parse_args()
@@ -343,7 +345,7 @@ def main():
            '-global', 'virtio-mmio.force-legacy=false',
            '-cpu', a.cpu, '-smp', str(a.cpus), '-m', f'{ram_gib}G',
            '-nographic', '-serial', f'file:{out}/serial.txt', '-qmp', f'unix:{mon},server,nowait',
-           '-d', 'int,guest_errors,unimp', '-D', f'{out}/qemu.log', '-no-reboot',
+           '-d', a.qemu_log, '-D', f'{out}/qemu.log', '-no-reboot',
            '-device', f'loader,file={out}/ram.bin,addr={phys_base:#x},force-raw=on',
            '-device', f'loader,file={out}/stub.bin,addr={STUB_PA:#x},force-raw=on',
            '-device', f'loader,addr={STUB_PA:#x},cpu-num=0']

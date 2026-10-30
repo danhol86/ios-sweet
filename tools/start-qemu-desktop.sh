@@ -18,6 +18,8 @@ sample="$(printenv SWEET_QEMU_SAMPLE || true)"
 sample_delay="$(printenv SWEET_QEMU_SAMPLE_DELAY || true)"
 sample_interval="$(printenv SWEET_QEMU_SAMPLE_INTERVAL || true)"
 base="$(printenv SWEET_QEMU_OUTPUT_BASE || true)"
+viewer_host="$(printenv SWEET_QEMU_VIEWER_HOST || true)"
+qemu_log="$(printenv SWEET_QEMU_LOG_FLAGS || true)"
 [[ -n "$kernel" ]] || kernel="$repo/xnu/out-qemu/kernel.development.sweet"
 [[ -n "$disk" ]] || disk="/home/ios-sweet-test/ios16-root-bulk.img"
 [[ -n "$overlay" ]] || overlay="/home/ios-sweet-test/ios16-root-persistent.qcow2"
@@ -33,6 +35,8 @@ base="$(printenv SWEET_QEMU_OUTPUT_BASE || true)"
 [[ -n "$sample_delay" ]] || sample_delay="12"
 [[ -n "$sample_interval" ]] || sample_interval="25"
 [[ -n "$base" ]] || base="/home/ios-sweet-test"
+[[ -n "$viewer_host" ]] || viewer_host="127.0.0.1"
+[[ -n "$qemu_log" ]] || qemu_log="int,guest_errors,unimp"
 run="$base/desktop-qemu-$(date -u +%Y%m%d-%H%M%S)"
 
 if [[ ! -f "$kernel" ]]; then
@@ -88,7 +92,7 @@ fi
 python3 "$repo/tools/mkpayload.py" "$kernel" "$run/qemu.adt" "$run/payload.bin" \
     --cmdline "debug=0xc serial=3 cpus=$cpus keepsyms=1 -enable_kprintf_spam -noprogress rd=virtiodisk0 unentitled_ios_sim_launch=1 rootrw=1 launchd_unsecure_cache=1 ignition_level=1 wdt_test=no_user_checkin wdt=-1 sweetsample=$sample sweetsample_delay=$sample_delay sweetsample_interval=$sample_interval $fbarg $smp_flag $network_delegate_flag"
 
-python3 "$repo/tools/qemu-live-screen.py" "$run" --enable-input --port "$port" > "$run/viewer.log" 2>&1 &
+python3 "$repo/tools/qemu-live-screen.py" "$run" --enable-input --host "$viewer_host" --port "$port" > "$run/viewer.log" 2>&1 &
 viewer_pid=$!
 cleanup() {
     kill "$viewer_pid" 2>/dev/null || true
@@ -114,4 +118,4 @@ if [[ "$network" == "1" ]]; then
 fi
 python3 "$repo/tools/qemu-sweet.py" "$run/payload.bin" "$run" \
     --kernel "$kernel" "${disk_args[@]}" --tablet "${net_args[@]}" --cpus "$cpus" \
-    --secs "$seconds" --live-serial
+    --secs "$seconds" --qemu-log "$qemu_log" --live-serial

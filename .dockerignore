@@ -1,0 +1,4 @@
+# Never send private iOS images, working trees, logs, or large kernels to Docker build.
+**
+!docker/
+!docker/entrypoint.sh

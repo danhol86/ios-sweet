@@ -1,4 +1,6 @@
 # Windows / WSL2 QEMU development
+
+See [one-click Windows and Docker deployment](ONE_CLICK_DEPLOY.md) for new machine setup, Docker and cleanup.
 ## Storage relocation (2026-10-30)
 
 The Windows checkout now resides at `D:\Projects\ios-sweet`, with the original

@@ -211,6 +211,7 @@ def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("outdir", type=Path, help="RUN_OUT used by a running qemu-sweet.py")
     ap.add_argument("--port", type=int, default=8099)
+    ap.add_argument("--host", default="127.0.0.1", help="bind address (0.0.0.0 for container only)")
     ap.add_argument("--enable-input", action="store_true",
                     help="send browser pointer events to QEMU VirtIO tablet (iOS kernel HID driver still required)")
     a=ap.parse_args()
@@ -218,7 +219,7 @@ def main():
         ap.error("QEMU output directory does not exist")
     ViewerHandler.outdir=a.outdir.resolve()
     ViewerHandler.input_enabled=a.enable_input
-    server=HTTPServer(("127.0.0.1",a.port),ViewerHandler)
+    server=HTTPServer((a.host,a.port),ViewerHandler)
     print(f"Local QEMU framebuffer viewer: http://127.0.0.1:{a.port}/", flush=True)
     try: server.serve_forever()
     except KeyboardInterrupt: pass
