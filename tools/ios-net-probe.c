@@ -121,6 +121,15 @@ static void dns_lookup(void)
 
 int main(void)
 {
+    /* This guest's stock launchd jobs do not inherit a readable stdout.
+       Persist results in the disposable guest for offline inspection. */
+    int logfile = open("/private/var/tmp/iossweet-netprobe.log",
+                       O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (logfile >= 0) {
+        (void)dup2(logfile, STDOUT_FILENO);
+        (void)dup2(logfile, STDERR_FILENO);
+        if (logfile > STDERR_FILENO) close(logfile);
+    }
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
     puts("IOS_SWEET_NETWORK_PROBE_START");
@@ -128,9 +137,9 @@ int main(void)
     for (int attempt = 1; attempt <= 4; ++attempt) {
         printf("attempt=%d\n", attempt);
         interfaces();
-        reachability();
         direct_connect();
         dns_lookup();
+        reachability();
         if (attempt != 4) sleep(10);
     }
     puts("IOS_SWEET_NETWORK_PROBE_DONE");
