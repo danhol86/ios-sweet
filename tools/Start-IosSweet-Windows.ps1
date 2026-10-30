@@ -21,7 +21,8 @@ param(
     [switch]$WorkingGuest,
     [switch]$Network,
     [string]$Disk = '',
-    [string]$Overlay = ''
+    [string]$Overlay = '',
+    [ValidateNotNullOrEmpty()][string]$Distro = 'Ubuntu-24.04-D'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -31,12 +32,12 @@ if ($repo -notmatch '^[A-Za-z]:\\') {
 }
 $wslRepo = '/mnt/' + $repo.Substring(0,1).ToLowerInvariant() + '/' +
     $repo.Substring(3).Replace([char]92,[char]47)
-& wsl.exe -d Ubuntu-24.04 -- test -d $wslRepo
+& wsl.exe -d $Distro -- test -d $wslRepo
 if ($LASTEXITCODE -ne 0) {
-    throw "WSL2 Ubuntu-24.04 cannot access the project at $wslRepo"
+    throw "WSL2 $Distro cannot access the project at $wslRepo"
 }
 $kernel = "$wslRepo/xnu/out-qemu-$KernelBuild/kernel.development.sweet"
-& wsl.exe -d Ubuntu-24.04 -- test -f $kernel
+& wsl.exe -d $Distro -- test -f $kernel
 if ($LASTEXITCODE -ne 0) {
     throw "Missing kernel $kernel. Build or download a verified kernel first."
 }
@@ -64,11 +65,11 @@ if ($WorkingGuest) {
     Write-Host 'Selected the locally prepared interactive iOS test installation.'
 }
 if ($Disk) {
-    & wsl.exe -d Ubuntu-24.04 -- test -f $Disk
+    & wsl.exe -d $Distro -- test -f $Disk
     if ($LASTEXITCODE -ne 0) { throw "Guest disk does not exist: $Disk" }
 }
 if ($Overlay -and -not $Ephemeral) {
-    & wsl.exe -d Ubuntu-24.04 -- test -f $Overlay
+    & wsl.exe -d $Distro -- test -f $Overlay
     if ($LASTEXITCODE -ne 0) { throw "Guest overlay does not exist: $Overlay" }
 }
 Write-Host "Booting experimental iOS-SWEET on $Cpus virtual CPUs..."
@@ -92,7 +93,7 @@ try {
     $ephemeralValue = if ($Ephemeral) { '1' } else { '0' }
     $networkValue = if ($Network) { '1' } else { '0' }
     $wslArguments = @(
-        '-d', 'Ubuntu-24.04', '--', 'env',
+        '-d', $Distro, '--', 'env',
         "SWEET_QEMU_KERNEL=$kernel",
         "SWEET_QEMU_CPUS=$Cpus", "SWEET_QEMU_SECONDS=$Seconds",
         "SWEET_QEMU_PORT=$Port", "SWEET_QEMU_EPHEMERAL=$ephemeralValue",
