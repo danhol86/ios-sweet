@@ -23,6 +23,23 @@ must be available, and the user must provide the prepared guest image. On a
 fresh PC, WSL installation may require administrator approval and a reboot.
 This repository now automates everything after those prerequisites.
 
+## Portable release archive
+
+To prepare a code-only installer ZIP for another Windows computer:
+
+```powershell
+.\tools\Build-IosSweet-Package.ps1 -CheckOnly
+.\tools\Build-IosSweet-Package.ps1 -Destination 'D:\Releases\ios-sweet-portable.zip'
+```
+
+This archives only **committed Git files** and verifies each ZIP entry matches
+the tracked tree. It explicitly rejects private image, key and device-tree
+file extensions, and writes a `.sha256` checksum manifest alongside the ZIP.
+The archive contains the two clickable installers, source, tools, Docker
+configuration and docs, **not** proprietary iOS media or the locally built
+kernel. Extract it on the destination machine, then follow the setup below.
+Do not advertise this as a fully functional network-enabled release until
+Safari HTTP and HTTPS have passed guest packet-capture verification.
 ## Windows 11 / WSL2 (preferred for this machine)
 
 1. Unpack the repository onto a local Windows drive.
