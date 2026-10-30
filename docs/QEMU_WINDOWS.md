@@ -207,11 +207,18 @@ probe with working iOS network services.** The opt-in QEMU privilege
 WebKit/mDNSResponder delegation denials but did not restore Safari access.
 An independent IONetworkInterface IORegistry facade test successfully
 publishes en0, yet configd still deletes the route and no HTTP packets were
-seen (experimental branch qemu-net-ioreg-probe, not in main). The next
-diagnostic build traces WebKit/Safari socket/connect/connectx syscalls under
-bootarg sweet_qemu_network_trace=1 (branch windows-qemu-virtio); determining
-whether network framework reachability or socket creation blocks Safari is
-the next gate. All QEMU network testing uses an isolated QCOW2 overlay, not
+seen (experimental branch qemu-net-ioreg-probe, not in main). The focused
+WebKit/Safari socket/connect/connectx trace built successfully in CI
+40980169328 (local kernel 0094). In the live test, Safari's address bar
+visibly contained example.com; the native Go button was pressed, but no
+WebKit/Safari socket/connect/connectx syscall was traced and the host-side
+packet capture contained no TCP. Check proc_name matching before ruling
+out all browser socket calls. This strongly suggests the browser is
+blocked during network path selection or reachability, before normal TCP
+transmission; investigate configd, NECP and actual IONetworkInterface
+integration before changing the TCP transmit path. See NOTES.md and
+run /home/ios-sweet-test/desktop-qemu-20261030-003759. All QEMU network
+testing uses an isolated QCOW2 overlay, not
 the known-working 0086 GUI disk; inspect network.pcap per test run.
 
 **Work in progress:** A QEMU-only VirtIO MMIO Ethernet driver, explicit
