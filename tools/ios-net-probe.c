@@ -224,13 +224,14 @@ int main(void)
         printf("attempt=%d\n", attempt);
         interfaces();
         direct_connect();
-        int status = dns_lookup();
-        if (attempt == 1 && status != 0) {
+        /* Publish diagnostic config BEFORE making getaddrinfo, since the
+           broken iOS resolver can block for a long time waiting for DNS. */
+        if (attempt == 1) {
             try_private_dns_store();
             sleep(2);
-            printf("dns_after_store_attempt:\n");
-            (void)dns_lookup();
         }
+        printf("dns_after_store_attempt:\n");
+        (void)dns_lookup();
         reachability();
         if (attempt != 4) sleep(10);
     }
