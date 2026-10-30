@@ -6,6 +6,7 @@
  * and examine only the locally written stdout file from launchd.
  */
 #include <arpa/inet.h>
+#include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <ifaddrs.h>
@@ -96,7 +97,7 @@ static void direct_connect(void)
     close(fd);
 }
 
-static void dns_lookup(void)
+static int dns_lookup(void)
 {
     struct addrinfo hints = {0}, *results = NULL;
     hints.ai_family = AF_INET;
@@ -117,6 +118,53 @@ static void dns_lookup(void)
         }
         freeaddrinfo(results);
     }
+    return rc;
+}
+
+static void try_private_dns_store(void)
+{
+    /* SCDynamicStore mutation APIs are explicitly unavailable in the
+       public iOS SDK. Probe at runtime only; do not claim they exist.
+       This runs exclusively on a disposable, locally-owned iOS disk. */
+    typedef void *(*create_fn)(CFAllocatorRef, CFStringRef, void *, void *);
+    typedef Boolean (*set_fn)(void *, CFStringRef, CFPropertyListRef);
+    void *framework = dlopen(
+        "/System/Library/Frameworks/SystemConfiguration.framework/SystemConfiguration",
+        RTLD_LAZY);
+    create_fn create = (create_fn)dlsym(
+        framework ? framework : RTLD_DEFAULT, "SCDynamicStoreCreate");
+    set_fn set = (set_fn)dlsym(
+        framework ? framework : RTLD_DEFAULT, "SCDynamicStoreSetValue");
+    printf("private_dns_store create_symbol=%d set_symbol=%d\n",
+           create != NULL, set != NULL);
+    if (!create || !set) {
+        if (framework) dlclose(framework);
+        return;
+    }
+    void *store = create(NULL, CFSTR("iossweet-test-dns"), NULL, NULL);
+    if (!store) {
+        puts("private_dns_store create_failed");
+        dlclose(framework);
+        return;
+    }
+    CFMutableDictionaryRef dns = CFDictionaryCreateMutable(
+        NULL, 0, &kCFTypeDictionaryKeyCallBacks,
+        &kCFTypeDictionaryValueCallBacks);
+    const void *server[1] = {CFSTR("10.0.2.3")};
+    CFArrayRef servers = CFArrayCreate(
+        NULL, server, 1, &kCFTypeArrayCallBacks);
+    CFDictionarySetValue(dns, CFSTR("ServerAddresses"), servers);
+    CFDictionarySetValue(dns, CFSTR("InterfaceName"), CFSTR("en0"));
+    Boolean ok = set(store, CFSTR("State:/Network/Global/DNS"), dns);
+    printf("private_dns_store global_dns_set=%d\n", (int)ok);
+    CFStringRef key = CFSTR(
+        "State:/Network/Service/CA9E6055-8C86-514A-B8BE-57D7F8A04B1B/DNS");
+    ok = set(store, key, dns);
+    printf("private_dns_store service_dns_set=%d\n", (int)ok);
+    CFRelease(servers);
+    CFRelease(dns);
+    CFRelease((CFTypeRef)store);
+    if (framework) dlclose(framework);
 }
 
 int main(void)
@@ -138,7 +186,13 @@ int main(void)
         printf("attempt=%d\n", attempt);
         interfaces();
         direct_connect();
-        dns_lookup();
+        int status = dns_lookup();
+        if (attempt == 1 && status != 0) {
+            try_private_dns_store();
+            sleep(2);
+            printf("dns_after_store_attempt:\n");
+            (void)dns_lookup();
+        }
         reachability();
         if (attempt != 4) sleep(10);
     }
