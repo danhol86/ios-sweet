@@ -15,6 +15,19 @@
 
 ### Resolver/socket service trace follow-up
 
+- Added `tools/Run-IosSweet-Docker-NetworkSmoke.ps1`: requires only Docker,
+  mounts the test kernel, private prepared iOS HFSX raw image and D22AP
+  device tree read-only; starts a distinct test container at 8111 with
+  independent QCOW2 overlay and network tracing. It refuses to overwrite
+  an existing overlay and supports `-CheckOnly` and `-Stop`, leaving the
+  stable Docker iOS instance at 8108 unchanged. A no-write preflight
+  completed successfully with kernel 0098.
+- Retry build with available Intel runner: GitHub Actions run
+  `41041168188`, branch `qemu-net-ioreg-probe`. The runner was assigned,
+  and the `Build` step began; inspect its actual result, then download
+  the kernel and run in the isolated test container to compare
+  mDNSResponder/WebKit sockets and packet capture.
+
 - GitHub Actions run `41039151252` did **not** reach the compile stage:
   GitHub cancelled the queued job after 15 minutes without assigning a
   hosted macOS ARM64 runner (capacity error). This is **not a source-build
