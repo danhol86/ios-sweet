@@ -40,6 +40,7 @@ def main():
     ap.add_argument("--interval", type=float, default=2)
     ap.add_argument("--seconds", type=float, default=90, help="max follow duration")
     ap.add_argument("--output", type=Path, help="write raw UTF-8 console bytes to an output file (instead of stdout)")
+    ap.add_argument("--qmp-tcp", help="native Windows QMP endpoint, e.g. tcp://127.0.0.1:4444 (default: Unix socket)")
     a = ap.parse_args()
     kernel = a.kernel or qemu_script.parent.parent/"xnu/out-qemu/kernel.development.sweet"
     payload = (a.payload or a.run/"payload.bin").read_bytes()
@@ -52,7 +53,8 @@ def main():
     start=time.monotonic()
     while True:
         dump=a.run/"qemu-console-dump.raw"
-        qemu.qmp(str(a.run/"mon.sock"),pmemsave=(total_pa,8+RING_SIZE,str(dump)))
+        qemu.qmp(a.qmp_tcp or str(a.run/"mon.sock"),
+                 pmemsave=(total_pa,8+RING_SIZE,str(dump)))
         buf=dump.read_bytes()
         dump.unlink(missing_ok=True)
         if len(buf) != 8+RING_SIZE:

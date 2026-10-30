@@ -88,3 +88,17 @@ response handling and renderer rather than assuming the QEMU NAT path is
 completely disconnected. Running QEMU directly on Windows is an
 independent performance experiment and will not repair this iOS userland
 issue by itself.
+
+## Native Windows verification (30 October 2026)
+
+The migrated guest booted under Windows QEMU 11.1 and reached the iOS
+home screen and Safari. The blank Google page issue persists. On the
+first native capture, iOS background services completed TCP and TLS
+handshakes to Apple servers, but there was no fresh Google connection
+in that capture. Do not claim Google browsing is working merely from
+successful iOS background network traffic.
+
+The private Windows packet traces are saved under
+`windows-runtime/state/windows-qemu-*/network.pcap`; the native
+kernel console can be inspected by passing
+`--qmp-tcp tcp://127.0.0.1:4444` to `qemu-console-log.py`.

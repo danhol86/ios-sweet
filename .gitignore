@@ -13,3 +13,4 @@ docker/local-config/
 docker/local-state/
 docker/local-guest/
 docker/local-assets/
+windows-runtime/

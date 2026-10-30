@@ -28,20 +28,47 @@ if($Stop) {
 if($LASTEXITCODE -ne 0){throw 'Windows-native QEMU prerequisites failed.'}
 if($CheckOnly){return}
 $other=@(Get-CimInstance Win32_Process -Filter "Name='qemu-system-aarch64.exe'" -ErrorAction SilentlyContinue)
-if($other.Count){throw 'A native QEMU instance is already running. Refusing another.'}
-$docker=@(& docker ps --format '{{.Names}}' 2>$null |
-  Where-Object{$_ -match '^ios-sweet-(qemu|netprobe)-'})
+if($other.Count){
+  if($other.Count -eq 1 -and $other[0].ExecutablePath -and
+      $other[0].ExecutablePath.StartsWith((Join-Path $repo 'windows-runtime\qemu'),[StringComparison]::OrdinalIgnoreCase)){
+    try {
+      $response=Invoke-WebRequest -Uri 'http://127.0.0.1:8108/' -UseBasicParsing -TimeoutSec 3
+      if($response.StatusCode -eq 200){
+        Write-Host 'iOS Sweet is already running on Windows. Opening its existing viewer; no second instance.'
+        if(-not $NoBrowser){Start-Process 'http://127.0.0.1:8108/'}
+        return
+      }
+    }catch {}
+  }
+  throw 'A native QEMU instance is already running but its viewer is not verified. Refusing a duplicate.'
+}
+$docker=@()
+if(Get-Command docker -ErrorAction SilentlyContinue){
+  $docker=@(& docker ps --format '{{.Names}}' 2>$null |
+    Where-Object{$_ -match '^ios-sweet-(qemu|netprobe)-'})
+}
 if($docker.Count){
   throw 'Docker iOS Sweet is still running. Stop that single guest with Start-IosSweet-Docker.ps1 -Stop before switching. The existing state will be preserved.'
 }
 $os=Get-CimInstance Win32_OperatingSystem
 $available=[double]$os.FreePhysicalMemory/1MB
-if($available -lt 8){
-  throw ('Windows has only '+([math]::Round($available,1))+' GiB RAM free. The iOS VM needs 8 GiB. Free RAM before launching, to avoid extreme paging.')
+if($available -lt 6){
+  throw ('Windows has only '+([math]::Round($available,1))+' GiB RAM free. The iOS VM needs at least 6 GiB free at startup. Free RAM before launching.')
 }
-$args='"'+$script+'"'
-if($NoBrowser){$args+=' --no-browser'}
-$process=Start-Process -FilePath $python -ArgumentList $args -PassThru -WindowStyle Hidden
+$launchArgs='"'+$script+'"'
+if($NoBrowser){$launchArgs+=' --no-browser'}
+$logDir=Join-Path $repo 'windows-runtime\logs'
+if(-not(Test-Path -LiteralPath $logDir)){New-Item -ItemType Directory -Path $logDir -Force|Out-Null}
+$stamp=Get-Date -Format 'yyyyMMdd_HHmmss_fff'
+$outLog=Join-Path $logDir ('native-launch-'+$stamp+'.log')
+$errLog=Join-Path $logDir ('native-launch-'+$stamp+'.err.log')
+$process=Start-Process -FilePath $python -ArgumentList $launchArgs -PassThru -WindowStyle Hidden -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+Start-Sleep -Seconds 1
+if($process.HasExited){
+  $detail=(Get-Content -LiteralPath $errLog -Raw -ErrorAction SilentlyContinue)
+  throw ('Native iOS Sweet exited before startup. '+$detail+' See '+$outLog)
+}
 Write-Host ('Started native Windows iOS Sweet process '+$process.Id)
 Write-Host 'If successful, viewer: http://127.0.0.1:8108/'
+Write-Host ('Startup log: '+$outLog)
 Write-Host 'To stop without losing the overlay: powershell -File tools/Start-IosSweet-Windows.ps1 -Stop'

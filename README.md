@@ -43,9 +43,16 @@ overlay by making a separate copy for Windows. See
 
 On x86 Windows, the verified QEMU build offers **TCG software emulation,
 not hardware-accelerated ARM64**. A substantial speedup is not guaranteed,
-and the 7 GiB iOS guest requires enough free host memory. The native boot
-has passed offline boot-payload and QMP tests, but an interactive native
-iOS boot has **not yet been verified**.
+and the 7 GiB iOS guest requires enough free host memory. On 30 October
+2026 the native Windows QEMU guest reached the lock screen, home screen
+and Safari using its preserved private save. Safari's Google page still
+rendered blank; native QEMU does not fix that automatically.
+
+On the tested PC, QEMU, the private 16 GiB iOS disk, kernel, writable
+overlay and logs live under `D:\Projects\ios-sweet\windows-runtime`.
+The dedicated iOS Sweet Docker containers, images and generated firmware
+working files were removed. Unrelated Docker Desktop services were
+left running.
 
 > **Physical-phone installation only:** Experimental bring-up, not a usable phone OS. Many things are missing or stubbed (see below), and Apple's security model is mostly switched off. Flashing the phone installs into the `userdata` partition and so **erases Android's user data**. The Windows/Docker installer does not flash a phone.
 

@@ -22,8 +22,7 @@ little free RAM rather than causing severe paging.
    SoftwareFreedomConservancy.QEMU --exact`) and Python 3.10+.
 2. Obtain a private prepared iOS disk and the verified SWEET kernel using
    the existing first-run Docker setup, or your own equivalent files.
-3. Make sure the Docker iOS guest is stopped. **Never run two instances.**
-   `powershell -File tools/Start-IosSweet-Docker.ps1 -Stop`
+3. Make sure any previous iOS guest is stopped. **Never run two instances.**
 4. Double-click **`Start-iOS-Sweet-Windows.cmd`**. It starts native Windows
    QEMU and the same browser viewer at
    <http://127.0.0.1:8108/> if prerequisites and free RAM pass.
@@ -46,12 +45,13 @@ iPhone DeviceTree, and constructs a RAM boot image from the user's own
 local kernel. It uses the project's existing XNU payload and VirtIO
 network/input devices.
 
-When switching for the first time, the manager copies the previous private
-Docker `ios.qcow2` overlay to `docker/local-state/native-windows/ios.qcow2`
-and rebases **only the copy** to the original read-only iOS raw disk under
-its Windows path. This preserves the user's first-boot data and previously
-installed guest DNS bootstrap. The old Docker overlay and raw OS are not
-overwritten. Native and Docker overlays must never be mounted simultaneously.
+On this PC, the active QEMU 11.1 runtime, iOS disk, kernel, writable state,
+and launcher logs are all under `D:\Projects\ios-sweet\windows-runtime`.
+Its `guest/` folder has the private iOS disk and verified kernel; `state/`
+holds the active save and per-run traces; `backups/` holds historical guest
+states, and `qemu/` contains Windows QEMU binaries. The previous Docker
+save was preserved and rebased to this same native iOS base. Docker and
+Windows must never access a writable guest overlay simultaneously.
 
 Native QEMU binds its QMP control channel to `127.0.0.1:4444`, and the
 viewer binds to `127.0.0.1:8108`. There is no external QMP listener.
@@ -67,9 +67,11 @@ and drag gestures over the same VirtIO tablet as the Docker version.
   approximately 16 MiB payload, 37 MiB boot RAM and an ARM64 stub.
 - Localhost TCP QMP command and touchscreen framing tests passed with a
   synthetic monitor. No second ARM64 emulator was launched.
-- A full native iOS boot is **not yet verified**: the host had only
-  approximately 1–2 GiB free while the existing Docker guest was running.
-  Do not interpret a successful preparation as an interactive native boot.
+- Native Windows iOS boot is verified: the lock screen, SpringBoard home
+  screen, Safari and Home gesture appeared in the live viewer on
+  30 October 2026. A second boot with the final D:-only paths reached the
+  lock screen. The host can still have very little free RAM and QEMU is
+  software-emulating ARM64; boot and graphics may remain slow.
 - Guest network capture from the previous Docker QEMU run showed successful
   `www.google.com` DNS, TCP and TLS ServerHello; Safari still did **not**
   reliably render a web page. That is an iOS WebKit/crypto/rendering issue

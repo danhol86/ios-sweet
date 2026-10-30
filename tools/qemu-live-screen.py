@@ -10,7 +10,7 @@ import argparse
 import importlib.util
 import json
 import os
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import socket
 import sys
@@ -255,7 +255,7 @@ def main():
                           a.qmp_tcp.startswith('tcp://localhost:')):
         ap.error('QMP TCP endpoint must bind localhost')
     ViewerHandler.qmp_tcp=a.qmp_tcp
-    server=HTTPServer((a.host,a.port),ViewerHandler)
+    server=ThreadingHTTPServer((a.host,a.port),ViewerHandler)
     print(f"Local QEMU framebuffer viewer: http://127.0.0.1:{a.port}/", flush=True)
     try: server.serve_forever()
     except KeyboardInterrupt: pass

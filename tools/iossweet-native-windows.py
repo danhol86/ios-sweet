@@ -26,6 +26,9 @@ import webbrowser
 
 ROOT = Path(__file__).resolve().parent.parent
 TOOL = Path(__file__).resolve().parent
+WIN_RUNTIME = ROOT / 'windows-runtime'
+WIN_GUEST = WIN_RUNTIME / 'guest'
+WIN_STATE = WIN_RUNTIME / 'state'
 sys.path.insert(0, str(TOOL))
 
 spec = importlib.util.spec_from_file_location('iossweet_qemu', TOOL / 'qemu-sweet.py')
@@ -35,7 +38,11 @@ view_spec = importlib.util.spec_from_file_location('iossweet_viewer', TOOL / 'qe
 viewer = importlib.util.module_from_spec(view_spec)
 view_spec.loader.exec_module(viewer)
 
-QEMU_DIR = Path(os.environ.get('IOS_SWEET_QEMU_DIR', r'C:\Program Files\qemu'))
+PORTABLE_QEMU_DIR = ROOT / 'windows-runtime/qemu'
+QEMU_DIR = Path(os.environ.get(
+    'IOS_SWEET_QEMU_DIR',
+    str(PORTABLE_QEMU_DIR if (PORTABLE_QEMU_DIR / 'qemu-system-aarch64.exe').is_file()
+        else Path(r'C:\Program Files\qemu'))))
 
 
 def log(message):
@@ -223,10 +230,16 @@ def prepare(args, state, qemu_bin, qemu_img, require_ram=True):
     # This is a guard against making an already paging Windows host much
     # slower. User can free RAM and retry without touching any saved overlay.
     available = free_ram_gib()
-    if require_ram and available < ram_gib:
+    # A 7 GiB QEMU address space does not commit every byte at startup.
+    # The earlier working guest used ~5.2 GiB of resident RAM. Reserve
+    # at least 6 GiB, warn if short of the whole virtual address space.
+    minimum_free = max(6, ram_gib - 1)
+    if require_ram and available < minimum_free:
         raise RuntimeError(f'Windows has only {available:.1f} GiB free, but this QEMU '
-                           f'guest maps {ram_gib} GiB. Close other memory-heavy '
-                           'programs before switching to native Windows.')
+                           f'guest maps {ram_gib} GiB. At least {minimum_free:.1f} GiB '
+                           'must be free to safely begin booting.')
+    if require_ram and available < ram_gib:
+        log(f'WARNING: HOST_RAM_FREE_{available:.1f}GiB_BELOW_GUEST_ADDRESS_SPACE_{ram_gib}GiB')
     if require_ram:
         check_overlay(qemu_img, disk, args.overlay)
     log(f'PREPARED_NATIVE_QEMU_GUEST_RAM={ram_gib}GiB WINDOWS_FREE={available:.1f}GiB')
@@ -305,7 +318,7 @@ def run_locked(args, state, qemu_bin, qemu_img):
         viewer.ViewerHandler.outdir = run
         viewer.ViewerHandler.input_enabled = True
         viewer.ViewerHandler.qmp_tcp = endpoint
-        server = viewer.HTTPServer(('127.0.0.1', args.port), viewer.ViewerHandler)
+        server = viewer.ThreadingHTTPServer(('127.0.0.1', args.port), viewer.ViewerHandler)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         (state / 'active-native.json').write_text(json.dumps({
             'qemu_pid': process.pid, 'qmp_port': args.qmp_port,
@@ -336,11 +349,10 @@ def run_locked(args, state, qemu_bin, qemu_img):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--kernel', type=Path, default=ROOT / 'docker/local-assets/auto/kernel-keepawake.development.sweet')
-    parser.add_argument('--disk', type=Path, default=ROOT / 'docker/local-guest/ios16-net-test.raw')
-    parser.add_argument('--device-tree', type=Path, default=ROOT / 'research/ipsw-x/d22ap.adt')
-    parser.add_argument('--overlay', type=Path, default=ROOT / 'docker/local-state/native-windows/ios.qcow2')
-    parser.add_argument('--state', type=Path, default=ROOT / 'docker/local-state/native-windows')
+    parser.add_argument('--kernel', type=Path, default=WIN_GUEST / 'kernel.development.sweet')
+    parser.add_argument('--disk', type=Path, default=WIN_GUEST / 'ios16-net-test.raw')
+    parser.add_argument('--overlay', type=Path, default=WIN_STATE / 'ios.qcow2')
+    parser.add_argument('--state', type=Path, default=WIN_STATE)
     parser.add_argument('--kernel-sha256', default='85039335d05d335d1f9b33f7c8131d274477c50020915ff0335b42428abe998a')
     parser.add_argument('--port', type=int, default=8108)
     parser.add_argument('--qmp-port', type=int, default=4444)
@@ -358,7 +370,7 @@ def main():
         print('QEMU_INSTALLED='+(str((QEMU_DIR / 'qemu-system-aarch64.exe').is_file())))
         print('KERNEL_AVAILABLE='+str(args.kernel.is_file()))
         print('IOS_DISK_AVAILABLE='+str(args.disk.is_file()))
-        print('DEVICE_TREE_AVAILABLE='+str(args.device_tree.is_file()))
+        print('QEMU_DEVICE_TREE=GENERATED_NATIVELY')
         print(f'WINDOWS_FREE_RAM_GIB={free_ram_gib():.2f}')
         print('NATIVE_ARM64_ACCEL=TCG_SOFTWARE_ONLY')
         return
