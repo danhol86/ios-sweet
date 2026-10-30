@@ -195,6 +195,25 @@ user-space code also reaches SpringBoard.
 
 ### Safari / internet access (confirmed missing, 2026-10-29)
 
+**2026-10-30 update (still not fixed):** Kernels 0091 and 0092 boot the
+separate QEMU network-test disk. VirtIO MMIO en0 receives 10.0.2.15/24,
+the kernel directly exchanges a DNS query/reply with QEMU NAT (10.0.2.3),
+and the default route is restored after configd deletes it. The iOS
+calendar is initialized from the QEMU clock. Safari still shows a blank
+page after genuine URL entry/Go; the host-side QEMU packet capture contains
+no Safari-initiated TCP packets. **Do not equate the kernel's synthetic DNS
+probe with working iOS network services.** The opt-in QEMU privilege
+10001 socket-delegation grant (0091 patch / 0092 kernel build) removed
+WebKit/mDNSResponder delegation denials but did not restore Safari access.
+An independent IONetworkInterface IORegistry facade test successfully
+publishes en0, yet configd still deletes the route and no HTTP packets were
+seen (experimental branch qemu-net-ioreg-probe, not in main). The next
+diagnostic build traces WebKit/Safari socket/connect/connectx syscalls under
+bootarg sweet_qemu_network_trace=1 (branch windows-qemu-virtio); determining
+whether network framework reachability or socket creation blocks Safari is
+the next gate. All QEMU network testing uses an isolated QCOW2 overlay, not
+the known-working 0086 GUI disk; inspect network.pcap per test run.
+
 **Work in progress:** A QEMU-only VirtIO MMIO Ethernet driver, explicit
 NAT device, and opt-in Windows launcher switch have been added in patch
 0087. The experimental invocation will be:
