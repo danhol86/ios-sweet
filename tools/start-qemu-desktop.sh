@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Run the experimental iOS SWEET XNU build via WSL2 and expose its framebuffer
-# on Windows localhost. This does not imply SpringBoard or HID works yet.
+# Run experimental iOS SWEET XNU through QEMU inside Docker (or a Linux host).
+# The Windows launcher uses Docker; a standalone WSL Ubuntu distro is not needed.
 set -euo pipefail
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"

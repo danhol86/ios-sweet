@@ -140,18 +140,19 @@ The log contains crash reports with backtraces (`CRASH name ...`), IOKit traces 
 
 ### QEMU
 
-**Windows support (experimental):** On the prepared Windows 11 + WSL2
-Ubuntu host, the iPhone X iOS 16.7.16 root now boots under 4-vCPU QEMU
-with a real lock screen, home screen, swipe gestures, a working Settings
-app, Safari, and native iOS touch-keyboard text entry. Open the
-iOS Sweet (Windows) desktop shortcut, or invoke
-tools/Start-IosSweet-Windows.ps1 with -WorkingGuest. The Windows browser
-viewer is at http://127.0.0.1:8099/.
+**Windows desktop: Docker-only (experimental).** Install Docker Desktop and
+double-click `Install-iOS-Sweet.cmd`. This starts the ARM64 QEMU guest in a
+Linux container (software emulation, no extra Ubuntu/WSL distribution), saves
+the selected private guest image, kernel and device-tree paths locally, and
+creates **iOS Sweet (Docker)** on the desktop. The viewer is
+`http://127.0.0.1:8108/`. The real iPhone X iOS 16.7.16 lock screen,
+SpringBoard, gestures, Settings and Safari open; **Safari has no working
+internet access yet**.
 
 The interactive guest requires a locally prepared private test root
 with a MobileGestalt-related compatibility workaround; the modified
 Apple userland is never distributed or committed. See
-[Windows QEMU setup and limitations](docs/QEMU_WINDOWS.md).
+[Docker-only installation and networking status](docs/ONE_CLICK_DEPLOY.md).
 
 `tools/qemu-sweet.py` boots the same kernel on QEMU `virt` with a test RAM-disk root. It is useful for kernel-only changes; see `NOTES.md`.
 
@@ -170,6 +171,7 @@ Apple userland is never distributed or committed. See
 | `tools/sweet-crash.py` | Symbolicate console crash reports |
 | `tools/xnu-cc.py` | Local single-file compile check from a CI log |
 | `tools/qemu-sweet.py` | QEMU test boots with framebuffer text decoding |
+| `docker/`, `Install-iOS-Sweet.cmd` | Windows Docker-only installer, QEMU runner, persistent state and viewer |
 | `tools/adt.py`, `remotezip.py`, `unpack_bootv2.py`, `sparsediff.py` | Helpers |
 | `NOTES.md` | Detailed engineering log: every boot, crash and decision, plus hardware facts |
 

@@ -11,7 +11,7 @@ esac
 kernel="${SWEET_QEMU_KERNEL:-/guest/kernel.development.sweet}"
 disk="${SWEET_QEMU_DISK:-/guest/ios.raw}"
 overlay="${SWEET_QEMU_OVERLAY:-/state/ios.qcow2}"
-for f in "$kernel" "$disk"; do
+for f in "$kernel" "$disk" "${SWEET_QEMU_PRODUCT_ADT:-/guest/d22ap.adt}"; do
   if [[ ! -f "$f" ]]; then
     echo "Missing required user-provided file: $f" >&2
     exit 2

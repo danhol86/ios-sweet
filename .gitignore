@@ -8,3 +8,8 @@ shim/out/
 xnu/out/
 xnu/out-*/
 __pycache__/
+docker/.env
+docker/local-config/
+docker/local-state/
+docker/local-guest/
+docker/local-assets/

@@ -1,221 +1,124 @@
-# iOS Sweet: Windows and Docker deployment
+# iOS Sweet: Docker-only Windows installation
 
-**Status (2026-10-30):** the iOS GUI boots on this test machine via WSL2; an
-experimental Docker/QEMU container also boots the real interactive iOS 16
-home screen with private guest media mounted
-read-only. This is NOT a complete iOS simulator. Safari internet connectivity
-remains unverified and currently fails in the tested native-WSL kernel.
+**Status — 30 October 2026:** the real iOS 16.7.16 GUI starts in an ARM64
+QEMU guest running inside Docker Desktop on Windows. Touch, SpringBoard and
+Safari launch. **Safari networking is not working yet.** This is experimental,
+not a general-purpose iOS simulator or an Apple-supported runtime.
 
-## What a deployable package can and cannot include
+## Install on a new Windows PC
 
-The source code, launcher, Dockerfile, Compose configuration and open-source
-rebuilt SWEET kernel can be distributed. The **iOS operating system disk** must
-come from the user's own legitimately obtained Apple software and needs the
-existing experimental iPhone X / iOS 16.7.16 preparation workflow. A private
-extracted `d22ap.adt` device tree from the matching IPSW is **also required**;
-the interactive installers prompt for it on first run. No Apple
-firmware, device-tree extracts, activation material or private user data are
-stored in Git, baked into Docker images, or downloaded automatically.
+Prerequisites:
 
-A *true* one-click deployment on any arbitrary PC cannot yet be claimed:
-Windows must support WSL2, virtualization must be enabled, a compatible kernel
-must be available, and the user must provide the prepared guest image. On a
-fresh PC, WSL installation may require administrator approval and a reboot.
-This repository now automates everything after those prerequisites.
+1. Windows 11 with virtualization enabled and **Docker Desktop running in
+   Linux containers mode** (Docker Desktop may manage its own internal WSL2
+   distro). **Do not install an extra Ubuntu WSL distro.**
+2. This repository or the code-only portable ZIP, extracted on a Windows
+   filesystem accessible to Docker Desktop.
+3. The user's own prepared **16 GiB iOS HFSX raw disk**, the matching
+   extracted iPhone X **D22AP device tree** (`d22ap.adt`), and a matching
+   rebuilt **SWEET XNU** kernel (`kernel.development.sweet`).
+   Neither Apple firmware nor prepared iOS media are included in the ZIP or
+   Docker image. For a new kernel, build the public open-source XNU patch
+   series with the repository's macOS GitHub Actions workflow and download its
+   `xnu-kernel` artifact. Preparing the iOS disk itself is still an
+   experimental, separate workflow.
 
-## Portable release archive
+**Double-click `Install-iOS-Sweet.cmd`.** The setup checks Docker and asks
+for any missing kernel, iOS disk or device-tree file, validates the image
+mounts, builds the QEMU image, and creates the desktop shortcut
+**iOS Sweet (Docker)**. Subsequent launches reuse the saved file paths in
+`docker/local-config/windows.json` (ignored by Git); no Ubuntu shell, WSL
+distribution, root password or system-wide environment configuration is needed.
+The saved paths are not baked into the Docker image.
 
-To prepare a code-only installer ZIP for another Windows computer:
+The browser opens `http://127.0.0.1:8108/` when the guest viewer is ready.
+The iOS boot itself takes longer. Press **Swipe up / Home** in the viewer to
+unlock or return to SpringBoard.
 
-```powershell
-.\tools\Build-IosSweet-Package.ps1 -CheckOnly
-.\tools\Build-IosSweet-Package.ps1 -Destination 'D:\Releases\ios-sweet-portable.zip'
-```
+The container mounts all three supplied inputs **read-only** and uses the
+separate persistent `docker/local-state/ios.qcow2` overlay for guest writes.
+This means an iOS reboot preserves state without changing the original disk.
+Do not share the same overlay between two simultaneously running instances.
+The viewer binds only to localhost.
 
-This archives only **committed Git files** and verifies each ZIP entry matches
-the tracked tree. It explicitly rejects private image, key and device-tree
-file extensions, and writes a `.sha256` checksum manifest alongside the ZIP.
-The archive contains the two clickable installers, source, tools, Docker
-configuration and docs, **not** proprietary iOS media or the locally built
-kernel. Extract it on the destination machine, then follow the setup below.
-Do not advertise this as a fully functional network-enabled release until
-Safari HTTP and HTTPS have passed guest packet-capture verification.
-## Windows 11 / WSL2 (optional alternative)
+## Running without the installer / in CI
 
-1. Unpack the repository onto a local Windows drive.
-2. Double-click **`Install-iOS-Sweet.cmd`**. Select the compatible rebuilt
-   `kernel.development.sweet`, **your own** prepared `.raw` iOS guest disk,
-   and extracted iPhone X `d22ap.adt` device tree.
-   The wizard checks/installs Ubuntu/WSL2 QEMU tools and creates a desktop
-   shortcut. If Windows requests a restart, reopen the installer afterward.
-3. Double-click **iOS Sweet (QEMU)**. Its URL appears in the PowerShell
-   console (default `http://127.0.0.1:8099/`). Keep the console open.
-
-For automated deployment from PowerShell:
+Windows PowerShell, from the extracted project root:
 
 ```powershell
-.\tools\Install-IosSweet-Windows.ps1 -Distro Ubuntu-24.04 -KernelBuild 0086 `
-  -KernelFile 'D:\Downloads\kernel.development.sweet' `
-  -GuestDisk 'D:\Private\ios-sweet\my-ios.raw' `
-  -DeviceTree 'D:\Private\ios-sweet\d22ap.adt'
-```
+.\tools\Start-IosSweet-Docker.ps1 -KernelPath 'D:\Private\kernel.development.sweet' `
+  -GuestDisk 'D:\Private\ios16.raw' `
+  -DeviceTree 'D:\Private\d22ap.adt' `
+  -StateDirectory 'D:\Private\iossweet-state' -CheckOnly
 
-`-CheckOnly` validates without installing or changing shortcuts. The installer
-never overwrites an existing rebuilt kernel or guest disk. If a guest file lives
-under `/mnt/<drive>` in WSL, reads may be slower than a disk on ext4; the normal
-persistent QCOW2 overlay remains in the selected WSL distro. The startup script
-only writes to that overlay and never to the original raw disk.
-
-**This machine:** project `D:\Projects\ios-sweet`; the private Ubuntu distro
-was unregistered after creating and verifying an offline backup. Only Docker
-Desktop's `docker-desktop` WSL distribution remains. Use the `iOS Sweet (Docker)`
-shortcut to boot the verified GUI-only 0086 kernel at `http://127.0.0.1:8108/`.
-The original Desktop source path remains accessible through a junction.
-
-## Docker Desktop or Linux Docker (experimental alternative)
-
-The dedicated runner is defined in `docker/Dockerfile` and `docker/compose.yml`.
-It requires an x86-64 Docker host with enough CPU/RAM. QEMU emulates an ARM64
-Cortex-A76 through **TCG software emulation** on x86-64; access to `/dev/kvm`
-is NOT required or requested. Docker Desktop runs another Linux environment on
-Windows, so there is no guarantee it will be faster than native WSL2.
-
-- Windows: double-click **`Start-iOS-Sweet-Docker.cmd`** and select the private
-  kernel, guest disk and device tree on first run, or run the command below.
-  The wrapper creates `iOS Sweet (Docker).lnk` for subsequent one-click launches.
-- On Linux: set `IOS_SWEET_KERNEL`, `IOS_SWEET_DISK`, and
-  `IOS_SWEET_STATE_DIR` to absolute existing host paths, then
-  `docker compose -p ios-sweet-qemu -f docker/compose.yml up --build -d`.
-- The viewer is published to **`127.0.0.1:8108`** by default, not to the LAN.
-- The guest `.raw` file and kernel are mounted **read-only**. Only the
-  separate `/state/ios.qcow2` backing overlay and timestamped test logs are
-  writable. Do not mount the **same writable overlay** into more than one VM.
-- Containerized iOS networking remains experimental; set `-Network` or
-  `IOS_SWEET_NETWORK=1` only for explicit troubleshooting.
-
-```powershell
-.\tools\Start-IosSweet-Docker.ps1 `
-  -KernelPath 'D:\Projects\ios-sweet\xnu\out-qemu-0086\kernel.development.sweet' `
-  -GuestDisk 'D:\Private\ios-sweet\my-ios.raw' `
-  -DeviceTree 'D:\Private\ios-sweet\d22ap.adt' `
-  -StateDirectory 'D:\Private\ios-sweet\docker-state' `
-  -CheckOnly
-# Remove -CheckOnly to start, then open http://127.0.0.1:8108/
-# Stop only this Compose project:
+# Remove -CheckOnly for a normal Docker start.
 .\tools\Start-IosSweet-Docker.ps1 -Stop
 ```
 
-The Docker image contains only Ubuntu, QEMU, LLVM, Python and the launcher.
-The `.dockerignore` permits only the small entrypoint into the build context,
-so private media and test logs cannot accidentally be copied into the image.
-Use `docker logs ios-sweet-qemu-ios-sweet-1` for startup messages.
+`-CheckOnly` verifies inputs and Compose configuration without building or
+starting the guest. Use `-Interactive` if you want file-picker dialogs, or
+`Start-iOS-Sweet-Docker.cmd` to start using saved paths.
 
-## Cleaning up experimental files
+On a Linux Docker host, set absolute existing paths for
+`IOS_SWEET_KERNEL`, `IOS_SWEET_DISK`, `IOS_SWEET_ADT`, and
+`IOS_SWEET_STATE_DIR`; then run:
 
-`tools/cleanup-qemu-logs.py` defaults to a dry run and reports the exact files
-it would delete. `--apply` removes only old oversized `qemu.log` files under
-`/home/ios-sweet-test/desktop-qemu-*`, retains the newest three runs and all
-console/packet captures, and refuses to run while WSL QEMU is active. It never
-removes private iOS disks, overlays or Docker images/volumes.
-
-The source `research/vm-test` includes archival one-off diagnostics. They are
-not included in the Docker image and should not be used as general deployment
-prerequisites.
-
-## Current outstanding technical issue
-
-VirtIO Ethernet gets `en0=10.0.2.15/24` through QEMU NAT; ARP and a kernel DNS
-round-trip work. Even with an IOKit-registered controller and a persistent
-`NetworkInterfaces.plist` entry, Safari sends **no TCP SYN** and its page is
-blank. The next fix belongs in iOS application network-path discovery and/or
-real IONetworkingFamily controller integration; do not claim that adding
-`NetworkInterfaces.plist` or granting sockets alone fixes internet access.
-Verify with Safari HTTP **and** HTTPS navigation plus a guest-originated TCP
-packet capture before publishing a networking-enabled release.
-
-## Verified local Docker GUI test (2026-10-30)
-
-Tested Windows 11/Docker Desktop, 4 emulated Cortex-A76 cores and experimental
-network kernel 0095. The local `ios-sweet-qemu:local` image built successfully,
-QEMU started in an unprivileged container, and the browser viewer displayed the
-real iOS 16.7.16 lock screen, accepted a touch swipe to unlock and showed
-SpringBoard/Home. Safari opened but displayed a blank `google.com` page.
-
-Host viewer: `http://127.0.0.1:8110/` during the test (the default for new
-installations is port 8108). Raw disk/kernel were mounted read-only from Windows;
-`/state/ios.qcow2` is a separate writable overlay. QEMU logging was reduced
-from GB-sized old `-d int,...` debug streams to `guest_errors,unimp` and stayed
-near zero during the GUI test. The tested Docker packet capture had ARP/DNS and
-multicast only, **no TCP SYN**. The run exited normally when the selected test
-duration elapsed. The 32 previously running Docker services were unaffected.
-
-The diagnostic kernel branch `qemu-net-ioreg-probe` has a separate opt-in NECP
-trace (`sweet_qemu_necp_trace=1`) to investigate why Safari/Network.framework
-does not start socket traffic. Do not merge it into a default package or claim
-network support until HTTP+HTTPS and TCP packets pass validation.
-## Docker network validation (2026-10-30)
-
-Docker image and GUI boot are **verified**; **Safari internet is not working**.
-Actions run 41024691971 built kernel 0097. It booted through the `ios-sweet-qemu:local`
-container using a separate writable overlay (`docker/local-state/0097`), with
-network diagnostics opt-in:
-
-```powershell
-.\tools\Start-IosSweet-Docker.ps1 -KernelPath '<path to 0097 kernel>' `
-  -GuestDisk '<private raw iOS disk>' -StateDirectory '<test state directory>' `
-  -Network -TraceNetworkPath -Port 8111
+```sh
+docker compose -p ios-sweet-qemu -f docker/compose.yml up --build -d
 ```
 
-After unlocking the iOS 16 screen, Safari displayed a blank Google tab.
-Submitting a new Safari address also left the screen blank. The packet capture
-contained ARP, DNS (including DNS reply), multicast and no TCP SYN. The NECP
-kernel log showed MobileSafari/WebKit:
+Windows `Install-iOS-Sweet.cmd` and the desktop shortcut **always run
+Docker**, not a standalone WSL Ubuntu environment.
 
-`flags=0x100024 policy=0 ifindex=4 reason=0`
+## Portable code-only ZIP
 
-Those bits mean **IPv4 supported**, **path satisfied**, and **global Internet
-route**, with the interface index matching QEMU `en0`. No browser socket syscall
-trace or TCP appeared. This is an iOS userland / Network.framework / socket-flow
-integration bug, not simply a missing default IPv4 route or Docker NAT.
+```powershell
+.\tools\Build-IosSweet-Package.ps1 -CheckOnly
+.\tools\Build-IosSweet-Package.ps1 -Destination 'D:\Releases\ios-sweet-docker.zip'
+```
 
-Keep the `0086` kernel as the stable GUI-only default while diagnosing it; the
-Windows shortcut **iOS Sweet (Docker)** is configured accordingly. Its URL is
-opened in the Windows browser after the container viewer becomes available.
-Use only a different state directory for each concurrent guest, and never run
-two instances with the same writable QCOW2 overlay.
+The packaging tool archives committed Git files only, validates the archive,
+rejects private Apple/guest media, and writes a SHA-256 manifest.
+It does not include the large local iOS image or a built kernel. If packaging
+from a developer branch, first commit its changes; otherwise the ZIP will
+contain the earlier committed tree.
 
-Do not mark network access functional until both an HTTP page and an HTTPS page
-actually load in Safari and the guest network capture shows real TCP traffic.
-## Docker-only validation and offline startup fix (2026-10-30)
+## Debugging current Safari networking
 
-Following verified backup and Ubuntu removal, the 0086 kernel booted to the iOS
-lock screen from Docker Desktop with only `docker-desktop` installed in WSL.
-The QEMU runner now passes `-nic none` by default, preventing QEMU from
-adding an implicit legacy network adapter requiring the missing `efi-virtio.rom`.
-Networking remains opt-in: Safari is not yet functional in the experimental
-0097 kernel. The user's original iOS disk is mounted read-only, with writes
-isolated in a Docker-local QCOW2 overlay.
+Networking is **off by default** with the verified GUI-only 0086 kernel.
+The experimental networking branch is
+`danhol86/ios-sweet:qemu-net-ioreg-probe`; GitHub Actions run
+`41031874190` built the combined socket/NECP diagnostic kernel (SHA-256
+`d97b60c0a29a6170663eb4bc14027f056180013fde9b4d699b0a9b06e0dcf59a`).
+Do not overwrite the stable GUI kernel or state overlay with experimental
+networking artifacts. Use a separate test state and distinct Docker Compose
+project when testing concurrently.
 
-## Docker-only verification after removing the standalone Ubuntu WSL distro
+Confirmed: the Docker host can resolve and fetch `https://example.com`
+(HTTP 200), the iOS guest has QEMU `en0=10.0.2.15/24`, and the kernel's
+direct DNS probe reaches `10.0.2.3`. **Safari shows a blank page and
+emits no TCP SYN**. MobileSafari/WebKit receive NECP
+`flags=0x100024 policy=0 ifindex=4 reason=0`, but do not attempt a traced
+socket connection. The guest's `SystemConfiguration/preferences.plist`
+already contains a manual Ethernet/DNS service while
+`NetworkInterfaces.plist` has no entries. Simply seeding that registry
+was tested independently and did not fix Safari.
 
-On 2026-10-30 the old `Ubuntu-24.04-D` WSL2 distro was removed after two
-verified recovery archives were created. Only Docker Desktop's internal
-`docker-desktop` distro remains registered. All 31 unrelated running Docker
-containers remained operational, with no volume or in-use image deletion.
+Next troubleshoot actual IONetworkingFamily registration, Network.framework
+and DNS dynamic-store service state. Do not fake internet connectivity by
+returning successful path or permission results. Verify **both HTTP and
+HTTPS in Safari and actual guest-originated TCP SYN traffic** before calling
+networking complete. Full technical findings and artifacts are in
+`NOTES.md` on the networking branch; the private captures remain local.
 
-The first GUI-only Docker restart failed because QEMU implicitly attached a
-ROM-backed default NIC (`efi-virtio.rom` was unavailable). The runner now always
-passes `-nic none` and adds the explicit QEMU VirtIO Ethernet device only with
-`-Network`. This fixes the **offline-mode boot**, not Safari networking.
+## Storage and safety
 
-Using kernel 0086, the local privately provided 16 GiB raw guest disk, and a
-Docker QCOW2 overlay on D:, the resulting QEMU guest reached iOS 16 lock screen,
-accepted touch-swipe unlock and displayed SpringBoard/Home. The Docker-only
-viewer runs at `http://127.0.0.1:8108/`. The user-facing shortcut is
-**iOS Sweet (Docker)**. Its stable/offline configuration does not pretend to
-provide internet access. Do not interpret the offline GUI test as network
-verification; network-enabled kernel 0097 remains for further diagnostics.
-
-WSL preservation and recovery notes are stored outside the repository under
-`D:\WSLRecovery\Ubuntu24D-backup-20261030-README.md`. Legacy iPhone usbmuxd
-and debugserver relays were backed up, but were not migrated to Docker.
+- Use `docker logs ios-sweet-qemu-ios-sweet-1` for Docker startup messages.
+- Use `Start-IosSweet-Docker.ps1 -Stop` to stop only iOS Sweet.
+- Do **not** unregister or delete Docker Desktop's `docker-desktop` WSL
+  distribution, its VHDX, or other applications' Docker volumes.
+- Old native Windows/Ubuntu launchers are retired. Historical technical
+  notes in `docs/QEMU_WINDOWS.md` describe old experiments and are not
+  current installation instructions.
+- The guest is security-relaxed and experimental. Do not use it for personal
+  accounts, credentials or sensitive data.

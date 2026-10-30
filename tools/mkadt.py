@@ -47,7 +47,8 @@ BOOT_MANIFEST_HASH = hashlib.sha384(b'sweet boot manifest').digest()
 # an Apple artifact (kept out of git): extract it from the IPSW with
 #   tools/remotezip.py URL DeviceTree.d22ap.im4p DIR
 #   ipsw img4 im4p extract DIR/Firmware/all_flash/DeviceTree.d22ap.im4p -o d22ap.adt
-D22AP_ADT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../research/ipsw-x/d22ap.adt')
+D22AP_ADT = os.environ.get('SWEET_QEMU_PRODUCT_ADT') or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), '../research/ipsw-x/d22ap.adt')
 
 
 def d22ap_product(path=D22AP_ADT):

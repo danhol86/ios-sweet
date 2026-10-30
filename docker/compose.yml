@@ -18,10 +18,12 @@ services:
       SWEET_QEMU_SECONDS: ${IOS_SWEET_SECONDS:-7200}
       SWEET_QEMU_NETWORK: ${IOS_SWEET_NETWORK:-0}
       SWEET_QEMU_NECP_TRACE: ${IOS_SWEET_NECP_TRACE:-0}
+      SWEET_QEMU_PRODUCT_ADT: /guest/d22ap.adt
       SWEET_QEMU_LOG_FLAGS: guest_errors,unimp
     volumes:
       - ../:/app:ro
       - ${IOS_SWEET_KERNEL:?Set IOS_SWEET_KERNEL to an existing local kernel file}:/guest/kernel.development.sweet:ro
       - ${IOS_SWEET_DISK:?Set IOS_SWEET_DISK to an existing local raw iOS guest disk}:/guest/ios.raw:ro
+      - ${IOS_SWEET_ADT:?Set IOS_SWEET_ADT to an extracted D22AP device tree}:/guest/d22ap.adt:ro
       - ${IOS_SWEET_STATE_DIR:?Set IOS_SWEET_STATE_DIR to an existing writable folder}:/state
     stop_grace_period: 45s
