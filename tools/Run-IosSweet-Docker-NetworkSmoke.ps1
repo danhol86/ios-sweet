@@ -78,7 +78,8 @@ $argsList=@(
     '--env','SWEET_QEMU_OVERLAY=/state/ios.qcow2',
     '--env','SWEET_QEMU_OUTPUT_BASE=/state',
     '--env','SWEET_QEMU_PORT=8099',
-    '--env','SWEET_QEMU_CPUS=4',
+    # The stable Docker guest panicked in SMP ticket spinlock with 4 CPUs.
+    '--env','SWEET_QEMU_CPUS=1',
     '--env','SWEET_QEMU_SECONDS=1800',
     '--env','SWEET_QEMU_NETWORK=1',
     '--env','SWEET_QEMU_NECP_TRACE=1',

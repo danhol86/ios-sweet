@@ -1,0 +1,31 @@
+name: iOS userland network probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15-intel
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build minimally privileged iOS arm64 probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          mkdir -p output
+          xcrun --sdk iphoneos clang \
+            -arch arm64 -miphoneos-version-min=16.0 -isysroot "$SDK" \
+            -O2 -Wall -Wextra -Werror \
+            tools/ios-net-probe.c -framework SystemConfiguration \
+            -o output/iossweet-net-probe
+          codesign --force --sign - output/iossweet-net-probe
+          file output/iossweet-net-probe
+          shasum -a 256 output/iossweet-net-probe > output/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-arm64-net-probe
+          path: output
+          retention-days: 7
