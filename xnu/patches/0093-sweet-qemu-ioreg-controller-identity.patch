@@ -1,0 +1,84 @@
+diff --git a/iokit/Kernel/arm/SweetQemuNetworkInterface.cpp b/iokit/Kernel/arm/SweetQemuNetworkInterface.cpp
+--- a/iokit/Kernel/arm/SweetQemuNetworkInterface.cpp
++++ b/iokit/Kernel/arm/SweetQemuNetworkInterface.cpp
+@@ -1,14 +1,20 @@
+ /* Experimental QEMU-only IOKit registry shim for the already-attached BSD en0.
+  * iOS configd discovers real interfaces through IONetworkInterface services.
+- * This class does not implement a controller or a second packet transport.
++ * Its dummy parent controller only supplies normal IORegistry identity;
++ * the existing BSD VirtIO driver remains the sole packet transport.
+  * It is published only after the QEMU VirtIO Ethernet NIC is detected.
+  */
+ #include <pexpert/arm64/board_config.h>
+ #if defined(SWEET)
+ #include <IOKit/IOService.h>
+ #include <IOKit/IOPlatformExpert.h>
+ #include <IOKit/IOLib.h>
++
++class SweetQemuEthernetController : public IOService {
++    OSDeclareDefaultStructors(SweetQemuEthernetController);
++};
++OSDefineMetaClassAndStructors(SweetQemuEthernetController, IOService);
+ 
+ class IONetworkInterface : public IOService {
+     OSDeclareDefaultStructors(IONetworkInterface);
+ public:
+@@ -19,9 +25,10 @@
+ bool IONetworkInterface::start(IOService *provider)
+ {
+     if (!IOService::start(provider)) return false;
+     uint8_t mac[6] = {0x02, 0x50, 0x53, 0x57, 0x00, 0x01};
+-    bool ok = setProperty("IOInterfaceNamePrefix", "en") &&
++    bool ok = setProperty("BSD Name", "en0") &&
++        setProperty("IOInterfaceNamePrefix", "en") &&
+         setProperty("IOInterfaceUnit", 0ULL, 32) &&
+         setProperty("IOInterfaceType", 6ULL, 32) &&
+         setProperty("IOInterfaceState", 1ULL, 32) &&
+         setProperty("IOInterfaceFlags", 0x8843ULL, 32) &&
+@@ -46,20 +53,44 @@
+     if (platform == NULL) {
+         IOLog("SWEET NET: QEMU IOKit interface has no platform expert\n");
+         return;
+     }
++    /* Apple's configd expects interface -> controller -> bus in IOService.
++     * BSD Name belongs to interface; hardware MAC
++     * belong to the controller.  Neither object drives a second BSD ifnet. */
++    SweetQemuEthernetController *controller = new SweetQemuEthernetController;
++    if (controller == NULL || !controller->init()) {
++        IOLog("SWEET NET: QEMU controller allocation failed\n");
++        if (controller != NULL) controller->release();
++        return;
++    }
++    controller->setName("sweet-qemu-virtio-net");
++    uint8_t mac[6] = {0x02, 0x50, 0x53, 0x57, 0x00, 0x01};
++    bool controllerReady = controller->setProperty("IOMACAddress", mac, sizeof(mac)) &&
++        controller->setProperty("IOFeatures", 0ULL, 32);
++    if (!controllerReady || !controller->attach(platform) ||
++        !controller->start(platform)) {
++        IOLog("SWEET NET: QEMU controller attach/start failed\n");
++        if (controller->getProvider()) controller->detach(platform);
++        controller->release();
++        return;
++    }
++    controller->registerService();
+     IONetworkInterface *service = new IONetworkInterface;
+     if (service == NULL || !service->init()) {
+         IOLog("SWEET NET: QEMU IONetworkInterface allocation failed\n");
+         if (service != NULL) service->release();
++        controller->release();
+         return;
+     }
+-    if (!service->attach(platform) || !service->start(platform)) {
++    if (!service->attach(controller) || !service->start(controller)) {
+         IOLog("SWEET NET: QEMU IONetworkInterface attach/start failed\n");
+-        service->detach(platform);
++        if (service->getProvider()) service->detach(controller);
+         service->release();
++        controller->release();
+         return;
+     }
+     published = true;
+     service->release();
++    controller->release();
+ }
+ #endif /* SWEET */

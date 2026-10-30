@@ -1,0 +1,97 @@
+diff --git a/bsd/dev/sweet_virtio_net.c b/bsd/dev/sweet_virtio_net.c
+--- a/bsd/dev/sweet_virtio_net.c
++++ b/bsd/dev/sweet_virtio_net.c
+@@ -34,6 +34,7 @@
+ #include <vm/vm_kern.h>
+ #include <libkern/libkern.h>
+ 
++extern void sweet_qemu_net_publish(void);
+ extern ppnum_t pmap_find_phys(pmap_t pmap, addr64_t va);
+ extern vm_offset_t ml_io_map(vm_offset_t phys_addr, vm_size_t size);
+ 
+@@ -313,6 +314,7 @@
+     vn.linked = true;
+     /* Notify configd of a usable Ethernet carrier link. */
+     dlil_post_msg(vn.ifp, KEV_DL_SUBCLASS, KEV_DL_LINK_ON, NULL, 0, FALSE);
++    sweet_qemu_net_publish();
+ }
+ 
+ static void
+diff --git a/iokit/conf/files.arm64 b/iokit/conf/files.arm64
+--- a/iokit/conf/files.arm64
++++ b/iokit/conf/files.arm64
+@@ -20,3 +20,4 @@
+ iokit/Kernel/arm/hid/IOHIDEvent.cpp                              optional iokitcpp
+ iokit/Kernel/arm/hid/IOHIDEventServiceQueue.cpp                  optional iokitcpp
+ iokit/Kernel/arm/hid/IOHIDEventServiceUserClient.cpp             optional iokitcpp
++iokit/Kernel/arm/SweetQemuNetworkInterface.cpp                    optional iokitcpp
+diff --git a/iokit/Kernel/arm/SweetQemuNetworkInterface.cpp b/iokit/Kernel/arm/SweetQemuNetworkInterface.cpp
+new file mode 100644
+--- /dev/null
++++ b/iokit/Kernel/arm/SweetQemuNetworkInterface.cpp
+@@ -0,0 +1,65 @@
++/* Experimental QEMU-only IOKit registry shim for the already-attached BSD en0.
++ * iOS configd discovers real interfaces through IONetworkInterface services.
++ * This class does not implement a controller or a second packet transport.
++ * It is published only after the QEMU VirtIO Ethernet NIC is detected.
++ */
++#include <pexpert/arm64/board_config.h>
++#if defined(SWEET)
++#include <IOKit/IOService.h>
++#include <IOKit/IOPlatformExpert.h>
++#include <IOKit/IOLib.h>
++
++class IONetworkInterface : public IOService {
++    OSDeclareDefaultStructors(IONetworkInterface);
++public:
++    bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
++};
++OSDefineMetaClassAndStructors(IONetworkInterface, IOService);
++
++bool IONetworkInterface::start(IOService *provider)
++{
++    if (!IOService::start(provider)) return false;
++    uint8_t mac[6] = {0x02, 0x50, 0x53, 0x57, 0x00, 0x01};
++    bool ok = setProperty("IOInterfaceNamePrefix", "en") &&
++        setProperty("IOInterfaceUnit", 0ULL, 32) &&
++        setProperty("IOInterfaceType", 6ULL, 32) &&
++        setProperty("IOInterfaceState", 1ULL, 32) &&
++        setProperty("IOInterfaceFlags", 0x8843ULL, 32) &&
++        setProperty("IOBuiltin", true) &&
++        setProperty("IOPrimaryInterface", true) &&
++        setProperty("IOMACAddress", mac, sizeof(mac));
++    if (!ok) {
++        IOLog("SWEET NET: IONetworkInterface properties failed\n");
++        return false;
++    }
++    setName("en0");
++    registerService();
++    IOLog("SWEET NET: QEMU IONetworkInterface en0 published\n");
++    return true;
++}
++
++extern "C" void sweet_qemu_net_publish(void)
++{
++    static bool published = false;
++    if (published) return;
++    IOPlatformExpert *platform = IOService::getPlatform();
++    if (platform == NULL) {
++        IOLog("SWEET NET: QEMU IOKit interface has no platform expert\n");
++        return;
++    }
++    IONetworkInterface *service = new IONetworkInterface;
++    if (service == NULL || !service->init()) {
++        IOLog("SWEET NET: QEMU IONetworkInterface allocation failed\n");
++        if (service != NULL) service->release();
++        return;
++    }
++    if (!service->attach(platform) || !service->start(platform)) {
++        IOLog("SWEET NET: QEMU IONetworkInterface attach/start failed\n");
++        service->detach(platform);
++        service->release();
++        return;
++    }
++    published = true;
++    service->release();
++}
++#endif /* SWEET */

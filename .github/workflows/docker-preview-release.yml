@@ -1,0 +1,51 @@
+name: Publish code-only Docker preview
+
+on:
+  # Publishing is explicitly initiated by tagging the verified commit.
+  push:
+    tags:
+      - 'docker-preview-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify tracked files and no private media
+        shell: pwsh
+        run: ./tools/Build-IosSweet-Package.ps1 -CheckOnly
+      - name: Build source-only Windows installer ZIP
+        shell: pwsh
+        run: ./tools/Build-IosSweet-Package.ps1 -Destination ./dist/ios-sweet-docker-oneclick.zip
+      - name: Verify package contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          unzip -l dist/ios-sweet-docker-oneclick.zip | grep -F 'Install-iOS-Sweet.cmd'
+          unzip -l dist/ios-sweet-docker-oneclick.zip | grep -F 'docker/prepare-network.sh'
+          grep -q 'ios-sweet-docker-oneclick.zip' dist/ios-sweet-docker-oneclick.zip.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-sweet-docker-oneclick
+          path: |
+            dist/ios-sweet-docker-oneclick.zip
+            dist/ios-sweet-docker-oneclick.zip.sha256
+      - name: Publish preview release from tag
+        if: startsWith(github.ref, 'refs/tags/docker-preview-v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/ios-sweet-docker-oneclick.zip dist/ios-sweet-docker-oneclick.zip.sha256 --clobber
+          else
+            gh release create "$TAG" dist/ios-sweet-docker-oneclick.zip dist/ios-sweet-docker-oneclick.zip.sha256 --prerelease --title "iOS Sweet Docker preview $TAG" --notes-file docs/DOCKER_PREVIEW_RELEASE.md
+          fi

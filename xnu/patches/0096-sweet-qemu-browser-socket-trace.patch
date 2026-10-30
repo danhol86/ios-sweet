@@ -1,6 +1,6 @@
 --- a/bsd/kern/uipc_syscalls.c
 +++ b/bsd/kern/uipc_syscalls.c
-@@ -106,6 +106,27 @@
+@@ -106,6 +106,30 @@
  #include <os/ptrtools.h>
  
  #include <os/log.h>
@@ -13,13 +13,16 @@
 +static void
 +sweet_net_trace(proc_t p, const char *action, int family, int error)
 +{
-+    if (!sweet_qemu_network_trace || sweet_net_trace_count >= 100) return;
++    if (!sweet_qemu_network_trace || sweet_net_trace_count >= 600) return;
 +    char name[32];
 +    proc_name(proc_pid(p), name, sizeof(name));
-+    /* WebKit process names may be truncated by proc_name. Keep only browser
-+       and WebKit tracing so mDNSResponder startup cannot exhaust the log. */
-+    if (strncmp(name, "com.apple.WebKit", 16) != 0 &&
-+        strcmp(name, "MobileSafari") != 0) return;
++    /* proc_name is truncated at MAXCOMLEN. Trace browser and DNS daemon
++       socket calls, never URLs, DNS queries, credentials or packet bodies. */
++    if (strncmp(name, "com.apple.Web", 13) != 0 &&
++        strcmp(name, "MobileSafari") != 0 &&
++        strcmp(name, "mDNSResponder") != 0 &&
++        strcmp(name, "configd") != 0 &&
++        strcmp(name, "networkd") != 0) return;
 +    sweet_net_trace_count++;
 +    printf("SWEET NET TRACE: %s %s family=%d error=%d\n",
 +        name, action, family, error);
@@ -28,7 +31,7 @@
  
  #if CONFIG_MACF_SOCKET_SUBSET
  #include <security/mac_framework.h>
-@@ -233,6 +254,9 @@
+@@ -233,6 +257,9 @@
      struct socket_args *uap,
      int32_ref_t retval)
  {
@@ -38,7 +41,7 @@
  	return socket_common(p, uap->domain, uap->type, uap->protocol,
  	           proc_selfpid(), retval, 0);
  }
-@@ -772,7 +796,13 @@
+@@ -772,7 +799,13 @@
  		goto out;
  	}
  
@@ -52,7 +55,7 @@
  
  	if (sa != NULL && sa != SA(&ss)) {
  		free_sockaddr(sa);
-@@ -929,8 +959,14 @@
+@@ -929,8 +962,14 @@
  		}
  	}
  

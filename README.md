@@ -6,7 +6,28 @@ This project ports Apple's open-source XNU kernel (xnu-8796, the iOS 16 generati
 
 As of **2026-10-18** the phone boots to the **iOS home screen**. You can unlock it, open Settings, pull down Control Center and the notification center, and use the touchscreen and the hardware buttons. Rendering runs entirely on the CPU; there is no GPU driver.
 
-> Experimental bring-up, not a usable phone OS. Many things are missing or stubbed (see below), and Apple's security model is mostly switched off. It installs into the `userdata` partition and so **erases Android's user data**.
+## Windows / Docker preview — install from GitHub
+
+For **Windows**, download the checked
+**[Docker preview installer ZIP](https://github.com/danhol86/ios-sweet/releases)**,
+extract it and double-click **`Install-iOS-Sweet.cmd`**. You need
+[Docker Desktop](https://www.docker.com/products/docker-desktop/) in Linux
+containers mode. This does **not** require a separate Ubuntu WSL distribution.
+
+**Important:** This public download contains the installer, Docker scripts,
+and our network bootstrap, **not a bootable Apple operating system**. To start
+the emulator, supply your own prepared iOS 16 HFSX root disk, a compatible
+QEMU SWEET XNU kernel, and an iPhone X D22AP device tree. The installer
+offers file pickers and remembers your choices. See the
+**[GitHub installation guide](docs/GITHUB_INSTALL.md)** for preparation steps
+and the [Docker-only technical notes](docs/ONE_CLICK_DEPLOY.md).
+
+The iOS GUI and Safari launch. Guest DNS/TCP connectivity now works in
+testing, but **Safari web pages can still render blank**; this is an
+experimental development preview, not a complete iOS simulator. The
+Windows/Docker installer never flashes the phone.
+
+> **Physical-phone installation only:** Experimental bring-up, not a usable phone OS. Many things are missing or stubbed (see below), and Apple's security model is mostly switched off. Flashing the phone installs into the `userdata` partition and so **erases Android's user data**. The Windows/Docker installer does not flash a phone.
 
 ## What works
 

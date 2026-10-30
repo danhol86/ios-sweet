@@ -1,0 +1,111 @@
+diff --git a/bsd/net/necp_client.c b/bsd/net/necp_client.c
+--- a/bsd/net/necp_client.c
++++ b/bsd/net/necp_client.c
+@@ -29,8 +29,9 @@
+ #include <string.h>
+ 
+ #include <kern/thread_call.h>
+ #include <kern/zalloc.h>
++#include <kern/startup.h>
+ 
+ #include <net/if.h>
+ #include <net/if_var.h>
+ #include <net/net_api_stats.h>
+@@ -65,8 +66,35 @@
+ #include <sys/codesign.h>
+ #include <libkern/section_keywords.h>
+ 
+ #include <os/refcnt.h>
++
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++/* QEMU-only diagnostics. No network permissions or policies are changed. */
++static TUNABLE(uint32_t, sweet_qemu_necp_trace, "sweet_qemu_necp_trace", 0);
++static uint32_t sweet_necp_browser_count;
++static uint32_t sweet_necp_daemon_count;
++static void
++sweet_necp_path_trace(struct proc *p, const char *action, uint32_t kind, int result)
++{
++    if (!sweet_qemu_necp_trace || !p) return;
++    char name[32] = { 0 };
++    proc_name(proc_pid(p), name, sizeof(name));
++    /* XNU proc_name can be truncated to MAXCOMLEN; do not require a complete
++       com.apple.WebKit.Networking process name. */
++    int browser = strcmp(name, "MobileSafari") == 0 ||
++        strncmp(name, "com.apple.Web", 13) == 0;
++    int daemon = strcmp(name, "networkd") == 0 ||
++        strcmp(name, "configd") == 0;
++    if (browser) {
++        if (sweet_necp_browser_count++ >= 120) return;
++    } else if (daemon) {
++        if (sweet_necp_daemon_count++ >= 24) return;
++    } else return;
++    printf("SWEET NECP: %s %s kind=%u error=%d\n",
++        name, action, kind, result);
++}
++#endif /* ARM64_BOARD_CONFIG_SWEET */
+ 
+ #if SKYWALK
+ #include <skywalk/os_skywalk_private.h>
+ #include <skywalk/nexus/flowswitch/flow/flow_var.h>
+@@ -6761,8 +6789,11 @@
+ 
+ int
+ necp_open(struct proc *p, struct necp_open_args *uap, int *retval)
+ {
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++    sweet_necp_path_trace(p, "open", uap->flags, 0);
++#endif
+ #pragma unused(retval)
+ 	int error = 0;
+ 	struct necp_fd_data *fd_data = NULL;
+ 	struct fileproc *fp = NULL;
+@@ -6851,8 +6882,11 @@
+ 			kfree_type(struct necp_fd_data, fd_data);
+ 		}
+ 	}
+ 
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++    sweet_necp_path_trace(p, "open-result", uap->flags, error);
++#endif
+ 	return error;
+ }
+ 
+ // All functions called directly from necp_client_action() to handle one of the
+@@ -10150,8 +10184,11 @@
+ 
+ int
+ necp_client_action(struct proc *p, struct necp_client_action_args *uap, int *retval)
+ {
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++    sweet_necp_path_trace(p, "client-action", uap->action, 0);
++#endif
+ 	struct fileproc *fp;
+ 	int error = 0;
+ 	int return_value = 0;
+ 	struct necp_fd_data *fd_data = NULL;
+@@ -10270,17 +10307,23 @@
+ 	}
+ 	}
+ 
+ done:
+-	fp_drop(p, uap->necp_fd, fp, 0);
+-	return return_value;
++    fp_drop(p, uap->necp_fd, fp, 0);
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++    sweet_necp_path_trace(p, "client-result", uap->action, return_value);
++#endif
++    return return_value;
+ }
+ 
+ #define NECP_MAX_MATCH_POLICY_PARAMETER_SIZE 1024
+ 
+ int
+ necp_match_policy(struct proc *p, struct necp_match_policy_args *uap, int32_t *retval)
+ {
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++    sweet_necp_path_trace(p, "match-policy", 0, 0);
++#endif
+ #pragma unused(retval)
+ 	u_int8_t *parameters = NULL;
+ 	struct necp_aggregate_result returned_result;
+ 	int error = 0;

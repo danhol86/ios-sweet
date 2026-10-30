@@ -27,7 +27,7 @@ $required=@('Install-iOS-Sweet.cmd','Start-iOS-Sweet-Docker.cmd','docker/compose
   'docker/prepare-network.sh','docker/network/iossweet-net-seed',
   'tools/mkadt.py','tools/Start-IosSweet-Docker.ps1')
 foreach($name in $required){if($name -notin $names){throw "Missing tracked package component $name"}}
-$bad=@($names | Where-Object {$_ -match '(?i)(^Users/|^research/ipsw-x/|(^|/)(local-state|local-guest|local-config|local-assets)/|\.((qcow2|raw|vhdx|im4p|adt|p8|p12|ipa|mobileprovision))$)'})
+$bad=@($names | Where-Object {$_ -match '(?i)(^Users/|^research/ipsw-x/|(^|/)(local-state|local-guest|local-config|local-assets)/|\.((qcow2|raw|vhdx|im4p|adt|ipsw|dmg|simg|img|p8|p12|ipa|mobileprovision))$)'})
 if($bad.Count){throw ('Private media paths found in tracked Git tree: '+($bad -join ', '))}
 Write-Host "Portable package source: Git $head ($($names.Count) files)"
 if($CheckOnly){Write-Host 'Check only: Git tree includes all installers and no private media extensions.';return}

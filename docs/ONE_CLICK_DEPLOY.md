@@ -1,5 +1,9 @@
 # iOS Sweet: Docker-only Windows installation
 
+**Installing from GitHub?** Start with the
+[public GitHub installation guide](GITHUB_INSTALL.md) and download the
+[verified Docker preview ZIP](https://github.com/danhol86/ios-sweet/releases).
+
 **Status — 30 October 2026:** the real iOS 16.7.16 GUI starts in an ARM64
 QEMU guest running inside Docker Desktop on Windows. A native root-owned
 SystemConfiguration bootstrap now makes the iOS DNS resolver return valid
