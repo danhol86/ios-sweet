@@ -39,16 +39,24 @@ fi
 
 work=$(mktemp -d)
 mounts=()
+stagefile=''
+tarfile=''
 cleanup() {
 	local busy=0
 	for m in "${mounts[@]}"; do
 		if mountpoint -q "$m"; then
-			sudo umount "$m" 2>/dev/null || true
+                if [[ ${IOS_SWEET_HFS_MOUNT:-} == guestmount && "$m" == "$work/root" ]]; then
+                    guestunmount "$m" 2>/dev/null || true
+                else
+                    sudo umount "$m" 2>/dev/null || true
+                fi
 		fi
 		mountpoint -q "$m" && busy=1
 	done
 	# Never recurse into a directory that is still mounted (the root is writable).
 	if [[ $busy == 0 ]]; then
+        if [[ -n "$stagefile" && -f "$stagefile" ]]; then rm -f -- "$stagefile"; fi
+        if [[ -n "$tarfile" && -f "$tarfile" ]]; then rm -f -- "$tarfile"; fi
 		rm -f "$work"/*.dmg
 		rmdir "$work"/* "$work" 2>/dev/null || true
 	else
@@ -74,7 +82,26 @@ apfs_mount "$appos" appos
 truncate -s "$size" "$out"
 mkfs.hfsplus -s -J -v iOSRoot "$out"
 mkdir "$work/root"
-sudo mount -t hfsplus -o loop,force "$out" "$work/root"
+if [[ ${IOS_SWEET_HFS_MOUNT:-} == guestmount ]]; then
+    # Docker Desktop's Linux kernel does not support HFS+. Use the
+    # libguestfs appliance to expose the HFSX image over FUSE.
+    guestmount -a "$out" -m /dev/sda:/:force,rw --rw "$work/root"
+elif [[ ${IOS_SWEET_HFS_MOUNT:-} == loop-ext4-stage ]]; then
+    # Docker Desktop has no host HFS+ driver. Build the tree on Linux ext4
+    # first, then import one tarball into the HFS guest appliance. This
+    # avoids tens of thousands of slow cross-VM FUSE metadata operations.
+    stagefile="$out.ext4-staging"
+    tarfile="$out.tar-staging"
+    [[ ! -e "$stagefile" && ! -e "$tarfile" ]] || {
+        echo "Old staged root found: clear this disposable attempt before retry." >&2
+        exit 3
+    }
+    truncate -s "$size" "$stagefile"
+    mkfs.ext4 -q -F "$stagefile"
+    sudo mount -t ext4 -o loop "$stagefile" "$work/root"
+else
+    sudo mount -t hfsplus -o loop,force "$out" "$work/root"
+fi
 mounts=("$work/root" "${mounts[@]}")
 
 copy() {
@@ -128,7 +155,21 @@ printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' \
 	sudo install -m 0600 -o 0 -g 0 /dev/stdin "$work/root/private/var/keybags/systembag.kb"
 
 df -h "$work/root"
-sudo umount "$work/root"
+if [[ ${IOS_SWEET_HFS_MOUNT:-} == guestmount ]]; then
+    guestunmount "$work/root"
+elif [[ ${IOS_SWEET_HFS_MOUNT:-} == loop-ext4-stage ]]; then
+    # GNU tar preserves owners, file modes, symlinks and hardlinks that
+    # iOS requires. Old rsync never copied extended attributes, so do not
+    # invent or inject any during this HFS format conversion.
+    echo 'Packing prepared iOS filesystem on native Linux ext4...'
+    tar --numeric-owner -C "$work/root" -cpf "$tarfile" .
+    sudo umount "$work/root"
+    echo 'Bulk importing iOS filesystem into HFSX guest disk...'
+    guestfish -a "$out" run : mount-options force,rw /dev/sda / : tar-in "$tarfile" /
+    rm -f "$tarfile" "$stagefile"
+else
+    sudo umount "$work/root"
+fi
 # Linux hfsplus decomposes some non-ASCII names (localized Shortcuts examples)
 # differently from Apple's tables; let fsck_hfs rewrite them, then verify.
 fsck.hfsplus -f -y "$out" | grep -v 'Illegal name' || true

@@ -29,9 +29,12 @@ Prerequisites:
    `xnu-kernel` artifact. Preparing the iOS disk itself is still an
    experimental, separate workflow.
 
-**Double-click `Install-iOS-Sweet.cmd`.** The setup checks Docker and asks
-for any missing kernel, iOS disk or device-tree file, validates the image
-mounts, builds the QEMU image, prepares its private network-enabled
+**Double-click `Install-iOS-Sweet.cmd`.** The setup checks Docker and
+installs official Docker Desktop through winget if necessary. On a fresh
+machine it downloads the verified open-source XNU kernel, selects the
+exact iPhone X iOS 16.7.16 components from Apple's firmware manifest,
+and builds a private HFSX iOS disk inside Docker. It then validates
+the image mounts, builds the QEMU image, prepares a network-enabled
 guest overlay, and creates the desktop shortcut
 **iOS Sweet (Docker)**. Subsequent launches reuse the saved file paths in
 `docker/local-config/windows.json` (ignored by Git); no Ubuntu shell, WSL
@@ -41,6 +44,17 @@ The saved paths are not baked into the Docker image.
 The browser opens `http://127.0.0.1:8108/` when the guest viewer is ready.
 The iOS boot itself takes longer. Press **Swipe up / Home** in the viewer to
 unlock or return to SpringBoard.
+
+**Fresh-IPSW smoke test (30 October 2026):** All Apple firmware downloads
+completed with CRC verification; the device tree exactly matched the
+previously verified tree; a 16 GiB HFSX filesystem was built, checked with
+`fsck.hfsplus`, and ran the iOS root tweaks. A single clean QEMU guest
+booted that image through launchd and executed SpringBoard/backboardd,
+but **did not reach the interactive lock screen** during the initial
+several-minute smoke test. Earlier interactive images used a private
+MobileGestalt/LaunchServices compatibility workaround not yet present in
+this fresh build. The one-click installation and Safari are therefore
+**not yet end-to-end verified**. This is not a stable release.
 
 The container mounts all three supplied inputs **read-only** and uses the
 separate persistent `docker/local-state/oneclick/ios.qcow2` overlay
@@ -93,16 +107,17 @@ Docker**, not a standalone WSL Ubuntu environment.
 
 The packaging tool archives committed Git files only, validates the archive,
 rejects private Apple/guest media, and writes a SHA-256 manifest.
-It does not include the large local iOS image or a built kernel. If packaging
+It does not include the large local iOS image or a built kernel. On a
+fresh install these are sourced and prepared automatically where possible.
+If packaging
 from a developer branch, first commit its changes; otherwise the ZIP will
 contain the earlier committed tree.
 
 ## Current Safari networking state
 
-Networking is **on by default** using the local kernel
-`xnu/out-qemu-network-0099/kernel.development.sweet`, and a private
-guest overlay distinct from all earlier tests. On another machine,
-choose the verified network-enabled kernel using the file picker.
+Networking is **on by default** using the verified network-enabled kernel
+(downloaded automatically from our release when a local one is absent),
+and a private guest overlay distinct from earlier tests.
 The first boot publishes QEMU `en0=10.0.2.15/24`, route
 `10.0.2.2`, DNS `10.0.2.3` and the corresponding dynamic IPv4/DNS
 service state as root. The bootstrap is restricted to the QEMU guest

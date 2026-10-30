@@ -5,3 +5,11 @@
 !docker/prepare-network.sh
 !docker/network/
 !docker/network/iossweet-net-seed
+!docker/prepare-assets.sh
+!tools/
+!tools/remotezip.py
+!tools/adt.py
+!tools/sweet-root-tweaks.py
+!tools/mkiosroot.sh
+!tools/AutoPrepare-IosSweet.py
+!tools/extract-im4p-adt.py

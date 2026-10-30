@@ -25,14 +25,34 @@ param(
     [switch]$TraceNetworkPath,
     [switch]$CheckOnly,
     [switch]$Interactive,
+    [switch]$NoAutoAssets,
+    [switch]$CleanRetry,
+    [ValidateSet('inspect','device-tree','full')][string]$AutoAssetMode = 'full',
     [switch]$NoShortcut,
     [switch]$NoBrowser,
     [switch]$Stop
 )
 $ErrorActionPreference='Stop'
 $repo=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$installMutex=New-Object System.Threading.Mutex($false,'Local\iossweet-docker-single-install')
+if(-not $installMutex.WaitOne(0)){
+    $installMutex.Dispose()
+    throw 'Another iOS Sweet installer or restart is already running. Multiple concurrent guests are prohibited.'
+}
+try {
 $compose=Join-Path $repo 'docker\compose.yml'
 $settingsFile=Join-Path $repo 'docker\local-config\windows.json'
+if(-not $CheckOnly -and -not $Stop){
+    # Also used by the Desktop shortcut and Start-iOS-Sweet-Docker.cmd;
+    # do not rely on setup having launched Docker Desktop on this boot.
+    $ensure=Join-Path $PSScriptRoot 'Ensure-IosSweet-Docker.ps1'
+    if(Test-Path -LiteralPath $ensure -PathType Leaf){
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $ensure
+        if($LASTEXITCODE -ne 0){
+            throw 'Docker Desktop setup needs attention; see the preceding message.'
+        }
+    }
+}
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { throw 'Install/start Docker Desktop before using the Docker backend.' }
 $dockerOS=(& docker info --format '{{.OSType}}' 2>$null)
 if ($LASTEXITCODE -ne 0) { throw 'Docker daemon is not responding.' }
@@ -42,10 +62,41 @@ if ($LASTEXITCODE -ne 0) { throw 'Docker Compose v2 is required.' }
 $project='ios-sweet-qemu'
 if($Network -and $NoNetwork) { throw 'Choose -Network or -NoNetwork, not both.' }
 $networkEnabled=(-not $NoNetwork)
+# Never allow two QEMU guests, even if a previous test used a different
+# Compose project or a manual docker run.
+function Get-IosSweetContainers {
+    return @(docker ps -a --format '{{.Names}}' | Where-Object {
+        $_ -match '^ios-sweet-(qemu|netprobe|hfsx)-'
+    })
+}
+function Stop-IosSweetTests {
+    $names=@(Get-IosSweetContainers)
+    foreach($name in $names){
+        $running=(& docker inspect $name --format '{{.State.Running}}').Trim()
+        if($running -eq 'true'){
+            & docker stop --time 10 $name | Out-Null
+            if($LASTEXITCODE -ne 0){ throw "Could not stop old iOS guest $name" }
+        }
+        if($CleanRetry){
+            & docker rm -v $name | Out-Null
+            if($LASTEXITCODE -ne 0){ throw "Could not remove stale iOS container $name" }
+        }
+    }
+    if(@(docker ps --format '{{.Names}}' | Where-Object {
+        $_ -match '^ios-sweet-(qemu|netprobe|hfsx)-'
+    }).Count -ne 0){ throw 'An old iOS emulator is still running; launch refused.' }
+}
 if ($Stop) {
     & docker compose --env-file (Join-Path $repo 'docker\.env.example') -p $project -f $compose down
     if ($LASTEXITCODE -ne 0) { throw 'Could not stop iOS Sweet Docker container.' }
+    Stop-IosSweetTests
     return
+}
+if($CleanRetry -and -not $CheckOnly){
+    Write-Host 'Clean retry: stopping and removing old iOS Sweet containers only.'
+    Stop-IosSweetTests
+    & docker image rm ios-sweet-qemu:local 2>$null | Out-Null
+    # No unrelated Docker images, volumes, networks or WSL distributions are touched.
 }
 function Choose-File([string]$title) {
     Add-Type -AssemblyName System.Windows.Forms
@@ -80,6 +131,40 @@ if($networkEnabled -and $savedKernel -eq (Join-Path $repo 'xnu\out-qemu-0086\ker
     # Migrate earlier GUI-only installs automatically; do not silently boot
     # a kernel that lacks networking with the new one-click installer.
     $savedKernel=''
+}
+$autoAssets=Join-Path $repo 'docker\local-assets\auto'
+$selectedKernel=if($KernelPath){$KernelPath}elseif($savedKernel){$savedKernel}else{$defaultKernel}
+$selectedGuest=if($GuestDisk){$GuestDisk}elseif($saved -and $saved.GuestDisk){[string]$saved.GuestDisk}else{$defaultGuest}
+$selectedAdt=if($DeviceTree){$DeviceTree}elseif($saved -and $saved.DeviceTree){[string]$saved.DeviceTree}else{$defaultAdt}
+if(-not $NoAutoAssets -and -not $CheckOnly -and (
+    -not(Test-Path -LiteralPath $selectedKernel -PathType Leaf) -or
+    -not(Test-Path -LiteralPath $selectedGuest -PathType Leaf) -or
+    -not(Test-Path -LiteralPath $selectedAdt -PathType Leaf)
+)){
+    $autoKernel=Join-Path $autoAssets 'kernel.development.sweet'
+    $autoGuest=Join-Path $autoAssets 'ios16-net-test.raw'
+    $autoAdt=Join-Path $autoAssets 'd22ap.adt'
+    if(-not((Test-Path $autoKernel) -and (Test-Path $autoGuest) -and (Test-Path $autoAdt))){
+        $driveRoot=[IO.Path]::GetPathRoot([IO.Path]::GetFullPath($autoAssets))
+        $disk=[IO.DriveInfo]::new($driveRoot)
+        if($disk.AvailableFreeSpace -lt 35GB){
+            throw 'Automatic Apple firmware setup needs at least 35 GB of free disk space. Free space or choose another installation drive.'
+        }
+        if(-not(Test-Path $autoAssets)){New-Item -ItemType Directory -Force -Path $autoAssets|Out-Null}
+        if(@(docker ps --format '{{.Names}}' |Where-Object{$_ -match '^ios-sweet-(qemu|netprobe)-'}).Count -gt 0){
+            throw 'Automatic asset preparation requires the old iOS emulator to be stopped.'
+        }
+        Write-Host 'First-time setup: downloading the verified XNU kernel and official Apple iOS firmware; preparing the local guest disk.'
+        & docker build -f (Join-Path $repo 'docker\Dockerfile.assets') -t ios-sweet-assets:local $repo
+        if($LASTEXITCODE -ne 0){throw 'Docker firmware preparation image build failed.'}
+        & docker run --rm --privileged --name ios-sweet-assets-prepare -v ($autoAssets.Replace([char]92,[char]47)+':/assets') ios-sweet-assets:local --mode $AutoAssetMode
+        if($LASTEXITCODE -ne 0){
+            throw 'Automatic firmware setup failed. Downloaded files stay cached locally for retry.'
+        }
+    }
+    if(-not(Test-Path -LiteralPath $selectedKernel -PathType Leaf)){$KernelPath=$autoKernel}
+    if(-not(Test-Path -LiteralPath $selectedGuest -PathType Leaf)){$GuestDisk=$autoGuest}
+    if(-not(Test-Path -LiteralPath $selectedAdt -PathType Leaf)){$DeviceTree=$autoAdt}
 }
 $KernelPath=Select-Asset $KernelPath $savedKernel $defaultKernel 'network-enabled SWEET XNU kernel.development.sweet'
 $GuestDisk=Select-Asset $GuestDisk $saved.GuestDisk $defaultGuest 'your prepared iOS HFSX .raw guest image'
@@ -116,6 +201,32 @@ if (Test-Path -LiteralPath $StateDirectory) {
     $StateDirectory=(Resolve-Path -LiteralPath $StateDirectory).Path
 }
 if ($StateDirectory -notmatch '^[A-Za-z]:\\') { throw 'State directory must be on a local Windows drive.' }
+if($CleanRetry -and -not $CheckOnly){
+    $stateRoot=[IO.Path]::GetFullPath($StateDirectory).TrimEnd('\')
+    if(-not(Test-Path -LiteralPath $stateRoot -PathType Container)){
+        throw 'Clean-retry state directory disappeared before cleanup.'
+    }
+    if((Get-Item -LiteralPath $stateRoot).Attributes -band [IO.FileAttributes]::ReparsePoint){
+        throw 'Refusing to clean a linked state directory.'
+    }
+    foreach($dir in @(Get-ChildItem -LiteralPath $stateRoot -Directory -Filter 'desktop-qemu-*' -ErrorAction SilentlyContinue)){
+        if(($dir.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+            -not $dir.FullName.StartsWith($stateRoot+'\',[StringComparison]::OrdinalIgnoreCase)){
+            throw 'Refusing to delete unsafe QEMU run directory.'
+        }
+        Remove-Item -LiteralPath $dir.FullName -Recurse -Force
+    }
+    $oldOverlay=Join-Path $stateRoot 'ios.qcow2'
+    if(Test-Path -LiteralPath $oldOverlay -PathType Leaf){
+        $overlayItem=Get-Item -LiteralPath $oldOverlay
+        if($overlayItem.Attributes -band [IO.FileAttributes]::ReparsePoint){
+            throw 'Refusing to remove a linked QEMU overlay.'
+        }
+        Remove-Item -LiteralPath $oldOverlay -Force
+        Write-Host 'Clean retry: old guest write overlay reset, including temporary guest data.'
+    }
+    Write-Host 'Previous disposable QEMU run files cleared. The read-only original iOS disk was preserved.'
+}
 $env:IOS_SWEET_KERNEL=$KernelPath.Replace([char]92,[char]47)
 $env:IOS_SWEET_DISK=$GuestDisk.Replace([char]92,[char]47)
 $env:IOS_SWEET_ADT=$DeviceTree.Replace([char]92,[char]47)
@@ -134,6 +245,17 @@ Write-Host 'Docker Compose configuration validated; private kernel/guest will be
 if ($CheckOnly) {
     Write-Host 'Check only. No Docker guest was started.'
     return
+}
+# This is checked again immediately before startup, not just during asset
+# preparation. A manual test with a different Compose project cannot be
+# permitted to coexist with this guest.
+$active=@(docker ps --format '{{.Names}}' | Where-Object {
+    $_ -match '^ios-sweet-(qemu|netprobe|hfsx)-'
+})
+if($active.Count -gt 1 -or ($active.Count -eq 1 -and
+    $active[0] -ne 'ios-sweet-qemu-ios-sweet-1')){
+    Write-Host 'Stopping old iOS Sweet diagnostic guests before running the installer.'
+    Stop-IosSweetTests
 }
 $running=@(& docker compose -p $project -f $compose ps --status running -q ios-sweet)
 if($LASTEXITCODE -ne 0){throw 'Cannot inspect running iOS Sweet containers.'}
@@ -194,4 +316,8 @@ if (-not $NoBrowser -and $Interactive) {
         } catch { }
         Start-Sleep -Milliseconds 500
     }
+}
+} finally {
+    $installMutex.ReleaseMutex()
+    $installMutex.Dispose()
 }

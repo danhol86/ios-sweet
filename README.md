@@ -8,17 +8,22 @@ As of **2026-10-18** the phone boots to the **iOS home screen**. You can unlock 
 
 ## Windows / Docker preview — install from GitHub
 
-For **Windows**, download the checked
+For **Windows**, download the
 **[Docker preview installer ZIP](https://github.com/danhol86/ios-sweet/releases)**,
-extract it and double-click **`Install-iOS-Sweet.cmd`**. You need
-[Docker Desktop](https://www.docker.com/products/docker-desktop/) in Linux
-containers mode. This does **not** require a separate Ubuntu WSL distribution.
+extract it and double-click **`Install-iOS-Sweet.cmd`**. The installer can
+install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+using Windows Package Manager if needed (UAC and a restart may be required).
+It uses Linux containers but does **not** require a separate Ubuntu WSL
+distribution.
 
 **Important:** This public download contains the installer, Docker scripts,
-and our network bootstrap, **not a bootable Apple operating system**. To start
-the emulator, supply your own prepared iOS 16 HFSX root disk, a compatible
-QEMU SWEET XNU kernel, and an iPhone X D22AP device tree. The installer
-offers file pickers and remembers your choices. See the
+and our network bootstrap, **not a bootable Apple operating system**. Newer
+installer versions automatically retrieve the verified open-source XNU kernel,
+then download official iPhone X iOS 16.7.16 firmware directly from Apple
+and prepare a **private** iOS HFSX disk locally. The first preparation needs
+at least **35 GiB of free disk space** and may require a substantial download.
+Manual file pickers remain available if automatic preparation cannot work
+on your machine. See the
 **[GitHub installation guide](docs/GITHUB_INSTALL.md)** for preparation steps
 and the [Docker-only technical notes](docs/ONE_CLICK_DEPLOY.md).
 
