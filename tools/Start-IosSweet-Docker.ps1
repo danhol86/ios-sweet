@@ -17,6 +17,7 @@ param(
     [ValidateRange(1,8)][int]$Cpus = 4,
     [ValidateRange(60,7200)][int]$Seconds = 7200,
     [switch]$Network,
+    [switch]$TraceNetworkPath,
     [switch]$CheckOnly,
     [switch]$Interactive,
     [switch]$NoShortcut,
@@ -76,6 +77,7 @@ $env:IOS_SWEET_VIEWER_PORT=[string]$Port
 $env:IOS_SWEET_CPUS=[string]$Cpus
 $env:IOS_SWEET_SECONDS=[string]$Seconds
 $env:IOS_SWEET_NETWORK=if($Network){'1'}else{'0'}
+$env:IOS_SWEET_NECP_TRACE=if($Network -and $TraceNetworkPath){'1'}else{'0'}
 & docker compose -p $project -f $compose config --quiet
 if ($LASTEXITCODE -ne 0) { throw 'Docker Compose configuration rejected.' }
 Write-Host 'Docker Compose configuration validated; private kernel/guest will be mounted read-only.'
@@ -98,6 +100,8 @@ if (-not $NoShortcut) {
     $args+=' -KernelPath "'+$KernelPath+'" -GuestDisk "'+$GuestDisk+'" -StateDirectory "'+$StateDirectory+'"'
     $args+=' -Port '+$Port+' -Cpus '+$Cpus+' -Seconds '+$Seconds
     if ($Network) { $args+=' -Network' }
+    if ($TraceNetworkPath) { $args+=' -TraceNetworkPath' }
+    $args+=' -Interactive'
     $link.Arguments=$args
     $link.WorkingDirectory=$repo
     $link.Description='Open interactive iOS Sweet in local Docker QEMU'

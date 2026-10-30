@@ -151,3 +151,36 @@ The diagnostic kernel branch `qemu-net-ioreg-probe` has a separate opt-in NECP
 trace (`sweet_qemu_necp_trace=1`) to investigate why Safari/Network.framework
 does not start socket traffic. Do not merge it into a default package or claim
 network support until HTTP+HTTPS and TCP packets pass validation.
+## Docker network validation (2026-10-30)
+
+Docker image and GUI boot are **verified**; **Safari internet is not working**.
+Actions run 41024691971 built kernel 0097. It booted through the `ios-sweet-qemu:local`
+container using a separate writable overlay (`docker/local-state/0097`), with
+network diagnostics opt-in:
+
+```powershell
+.\tools\Start-IosSweet-Docker.ps1 -KernelPath '<path to 0097 kernel>' `
+  -GuestDisk '<private raw iOS disk>' -StateDirectory '<test state directory>' `
+  -Network -TraceNetworkPath -Port 8111
+```
+
+After unlocking the iOS 16 screen, Safari displayed a blank Google tab.
+Submitting a new Safari address also left the screen blank. The packet capture
+contained ARP, DNS (including DNS reply), multicast and no TCP SYN. The NECP
+kernel log showed MobileSafari/WebKit:
+
+`flags=0x100024 policy=0 ifindex=4 reason=0`
+
+Those bits mean **IPv4 supported**, **path satisfied**, and **global Internet
+route**, with the interface index matching QEMU `en0`. No browser socket syscall
+trace or TCP appeared. This is an iOS userland / Network.framework / socket-flow
+integration bug, not simply a missing default IPv4 route or Docker NAT.
+
+Keep the `0086` kernel as the stable GUI-only default while diagnosing it; the
+Windows shortcut **iOS Sweet (Docker)** is configured accordingly. Its URL is
+opened in the Windows browser after the container viewer becomes available.
+Use only a different state directory for each concurrent guest, and never run
+two instances with the same writable QCOW2 overlay.
+
+Do not mark network access functional until both an HTTP page and an HTTPS page
+actually load in Safari and the guest network capture shows real TCP traffic.
