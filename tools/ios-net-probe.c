@@ -195,8 +195,13 @@ int main(void)
 {
     /* This guest's stock launchd jobs do not inherit a readable stdout.
        Persist results in the disposable guest for offline inspection. */
-    int logfile = open("/private/var/tmp/iossweet-netprobe.log",
-                       O_WRONLY | O_CREAT | O_APPEND | O_SYNC, 0600);
+    /* /var/tmp is purged by some guest boot services. Use a persistent,
+       per-UID diagnostic file inside this private guest overlay instead. */
+    char log_path[192];
+    (void)snprintf(log_path, sizeof(log_path),
+        "/private/var/mobile/Library/iossweet-netprobe-%ld.log",
+        (long)geteuid());
+    int logfile = open(log_path, O_WRONLY | O_CREAT | O_APPEND | O_SYNC, 0600);
     int log_errno = errno;
     if (logfile < 0) {
         /* Some iOS service sandboxes forbid creating files in /var/tmp.
@@ -212,8 +217,8 @@ int main(void)
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
     puts("IOS_SWEET_NETWORK_PROBE_START");
-    printf("log_file_open_errno=%d log_target_available=%d\n",
-           log_errno, logfile >= 0);
+    printf("log_path=%s log_file_open_errno=%d log_target_available=%d\n",
+           log_path, log_errno, logfile >= 0);
     timestamp();
     for (int attempt = 1; attempt <= 4; ++attempt) {
         printf("attempt=%d\n", attempt);
