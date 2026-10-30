@@ -34,11 +34,13 @@ env:
 
 jobs:
   build:
-    # macos-14 is in scheduled brownout on Oct 29 2026 and retires Nov 2.
+    # macos-15 is arm64 and may fail to acquire a hosted runner under
+    # capacity constraints (seen on 2026-10-30, run 41039151252).
+    # Intel macOS 15 has the Xcode toolchain for ARM64 cross compilation.
     # Xcode 16's iig may require compatibility fixes for old xnu-8796:
     # compile/inspect the generated IORPC code rather than accepting green
     # CI as proof of a verified kernel.
-    runs-on: macos-15
+    runs-on: macos-15-intel
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4

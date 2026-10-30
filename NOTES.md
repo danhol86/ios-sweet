@@ -15,6 +15,43 @@
 
 ### Resolver/socket service trace follow-up
 
+- GitHub Actions run `41039151252` did **not** reach the compile stage:
+  GitHub cancelled the queued job after 15 minutes without assigning a
+  hosted macOS ARM64 runner (capacity error). This is **not a source-build
+  failure**. Changed the workflow to the published standard
+  `macos-15-intel` runner so Xcode can cross-compile the ARM64 SWEET
+  kernel without waiting for an M-series runner. Verify actual CI build
+  results; do not assume Intel succeeds until tested.
+- `tools/inspect-qemu-network-pcap.py --require-tcp-syn <capture>`
+  now exits with code 2 for a packet capture with no guest TCP SYN. It
+  correctly rejected the 0098 Safari test and therefore guards against
+  claiming a working browser based only on the kernel DNS probe.
+
+- Apple open-source SystemConfiguration `ifnamer.c` (local reference under
+  `research/vm-test/network-reference/ifnamer.c`) first waits for a real
+  `IONetworkStack` IOService, calls `IOServiceOpen`, and sends
+  `kIONetworkStackRegisterInterfaceWithUnit` or
+  `...WithLowestUnit` via the user-client connection. It then looks for a
+  **newly named** `IONetworkInterface` matching the IORegistry entry ID.
+  Apple's `IONetworkStack.cpp` implementation performs the BSD attach,
+  sets `kIOBSDNameKey`, marks the interface registered and republishes it.
+- Our QEMU 0092/0093 network patches only publish a **dummy**
+  `IONetworkInterface : IOService` under a dummy
+  `SweetQemuEthernetController : IOService`; they do not publish any
+  `IONetworkStack` or its user client, and they bypass the normal
+  interface-to-ifnet attach flow. This is a concrete missing integration
+  contract, consistent with the empty `NetworkInterfaces.plist` and
+  Safari's absence of socket traffic. **Not yet proven as the sole
+  fault.** Adding cosmetic IORegistry properties or returning fabricated
+  success to ifnamer is not a proper fix.
+- Implement or port a real `IONetworkStack` + network interface registration
+  path that associates the existing QEMU VirtIO BSD `en0` with a genuine
+  IOKit network-interface service **without creating a second ifnet**.
+  Confirm that ifnamer actually registers `en0`, that
+  `NetworkInterfaces.plist` and the dynamic-store DNS service change,
+  and that Safari sends real DNS and TCP traffic in a disposable
+  Docker-only guest. Preserve stable GUI kernel 0086.
+
 - After the Docker-only UI test, the existing 0096 trace captured **zero
   browser socket/connect/connectx calls**, although MobileSafari and the
   WebKit networking process requested viable NECP paths.
