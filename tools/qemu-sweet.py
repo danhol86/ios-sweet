@@ -344,6 +344,7 @@ def main():
            # intentionally implements the modern VirtIO v2 transport only.
            '-global', 'virtio-mmio.force-legacy=false',
            '-cpu', a.cpu, '-smp', str(a.cpus), '-m', f'{ram_gib}G',
+           '-nic', 'none',  # prevent QEMU's implicit ROM-backed NIC on offline runs
            '-nographic', '-serial', f'file:{out}/serial.txt', '-qmp', f'unix:{mon},server,nowait',
            '-d', a.qemu_log, '-D', f'{out}/qemu.log', '-no-reboot',
            '-device', f'loader,file={out}/ram.bin,addr={phys_base:#x},force-raw=on',
@@ -365,7 +366,7 @@ def main():
         cmd += ['-device', 'virtio-tablet-device,id=sweet-tablet']
         print('[*] VirtIO tablet added (requires an in-kernel input driver)', file=sys.stderr)
     if a.network:
-        cmd += ['-nic', 'none', '-netdev', 'user,id=sweetnet,net=10.0.2.0/24',
+        cmd += ['-netdev', 'user,id=sweetnet,net=10.0.2.0/24',
                 '-device', 'virtio-net-device,netdev=sweetnet,mac=02:50:53:57:00:01']
         # Local diagnostic PCAP: capture both sides of the VirtIO link.
         # Keep captures private; they can contain guest browsing traffic.

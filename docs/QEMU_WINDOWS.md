@@ -1,22 +1,17 @@
 # Windows / WSL2 QEMU development
 
 See [one-click Windows and Docker deployment](ONE_CLICK_DEPLOY.md) for new machine setup, Docker and cleanup.
-## Storage relocation (2026-10-30)
+## Storage relocation and retirement (2026-10-30)
 
-The Windows checkout now resides at `D:\Projects\ios-sweet`, with the original
-`C:\Users\danho\Desktop\ios-sweet` path retained as a Windows junction. The
-experimental worktrees live under `D:\Projects\ios-sweet-net-ioreg-probe` and
-`D:\Projects\ios-sweet-net-trace-check`, with matching desktop junctions.
-
-The private Ubuntu development disk is cloned to
-`D:\WSLRecovery\Ubuntu-24.04\ext4.vhdx` and successfully registered and booted as
-`Ubuntu-24.04-D`. Use `-Distro Ubuntu-24.04-D` (the Windows launcher default),
-or `-Distro Ubuntu-24.04` to select the unchanged C: fallback distro.
-
-The original C: Ubuntu VHDX is retained until removal can be performed without
-interrupting active Docker Desktop workloads. The D: clone has booted and
-contains the private QEMU guest disks; source and guest network support remain
-experimental. Do not delete the original VHDX manually.
+The Git checkout lives at `D:\Projects\ios-sweet`; the original Desktop
+path is a junction. Two experimental networking worktrees are also on D:.
+The private `Ubuntu-24.04-D` WSL distro was retired after a verified
+compressed archive of the original prepared iOS disks, firmware, and unrelated
+AnyPS5 work was preserved. The backup is local-only and is not in Git.
+Only Docker Desktop's required WSL distribution remains. The native WSL
+launcher is historical and cannot run on this machine without reinstalling
+Ubuntu and restoring the private iOS development environment. The supported
+local desktop shortcut uses Docker and the stable GUI-only 0086 kernel.
 
 Status on **2026-10-29**: Real iOS 16.7.16 boots in QEMU on Windows
 WSL2, displays a real iOS lock screen, accepts an upward swipe from

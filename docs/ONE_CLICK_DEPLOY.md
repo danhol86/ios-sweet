@@ -40,7 +40,7 @@ configuration and docs, **not** proprietary iOS media or the locally built
 kernel. Extract it on the destination machine, then follow the setup below.
 Do not advertise this as a fully functional network-enabled release until
 Safari HTTP and HTTPS have passed guest packet-capture verification.
-## Windows 11 / WSL2 (preferred for this machine)
+## Windows 11 / WSL2 (optional alternative)
 
 1. Unpack the repository onto a local Windows drive.
 2. Double-click **`Install-iOS-Sweet.cmd`**. Select the compatible rebuilt
@@ -66,9 +66,11 @@ under `/mnt/<drive>` in WSL, reads may be slower than a disk on ext4; the normal
 persistent QCOW2 overlay remains in the selected WSL distro. The startup script
 only writes to that overlay and never to the original raw disk.
 
-**This machine:** project `D:\Projects\ios-sweet`, distro `Ubuntu-24.04-D`,
-GUI shortcut `C:\Users\danho\Desktop\iOS Sweet (Windows).lnk`. The source
-is also accessible via its original desktop-path junction.
+**This machine:** project `D:\Projects\ios-sweet`; the private Ubuntu distro
+was unregistered after creating and verifying an offline backup. Only Docker
+Desktop's `docker-desktop` WSL distribution remains. Use the `iOS Sweet (Docker)`
+shortcut to boot the verified GUI-only 0086 kernel at `http://127.0.0.1:8108/`.
+The original Desktop source path remains accessible through a junction.
 
 ## Docker Desktop or Linux Docker (experimental alternative)
 
@@ -184,3 +186,36 @@ two instances with the same writable QCOW2 overlay.
 
 Do not mark network access functional until both an HTTP page and an HTTPS page
 actually load in Safari and the guest network capture shows real TCP traffic.
+## Docker-only validation and offline startup fix (2026-10-30)
+
+Following verified backup and Ubuntu removal, the 0086 kernel booted to the iOS
+lock screen from Docker Desktop with only `docker-desktop` installed in WSL.
+The QEMU runner now passes `-nic none` by default, preventing QEMU from
+adding an implicit legacy network adapter requiring the missing `efi-virtio.rom`.
+Networking remains opt-in: Safari is not yet functional in the experimental
+0097 kernel. The user's original iOS disk is mounted read-only, with writes
+isolated in a Docker-local QCOW2 overlay.
+
+## Docker-only verification after removing the standalone Ubuntu WSL distro
+
+On 2026-10-30 the old `Ubuntu-24.04-D` WSL2 distro was removed after two
+verified recovery archives were created. Only Docker Desktop's internal
+`docker-desktop` distro remains registered. All 31 unrelated running Docker
+containers remained operational, with no volume or in-use image deletion.
+
+The first GUI-only Docker restart failed because QEMU implicitly attached a
+ROM-backed default NIC (`efi-virtio.rom` was unavailable). The runner now always
+passes `-nic none` and adds the explicit QEMU VirtIO Ethernet device only with
+`-Network`. This fixes the **offline-mode boot**, not Safari networking.
+
+Using kernel 0086, the local privately provided 16 GiB raw guest disk, and a
+Docker QCOW2 overlay on D:, the resulting QEMU guest reached iOS 16 lock screen,
+accepted touch-swipe unlock and displayed SpringBoard/Home. The Docker-only
+viewer runs at `http://127.0.0.1:8108/`. The user-facing shortcut is
+**iOS Sweet (Docker)**. Its stable/offline configuration does not pretend to
+provide internet access. Do not interpret the offline GUI test as network
+verification; network-enabled kernel 0097 remains for further diagnostics.
+
+WSL preservation and recovery notes are stored outside the repository under
+`D:\WSLRecovery\Ubuntu24D-backup-20261030-README.md`. Legacy iPhone usbmuxd
+and debugserver relays were backed up, but were not migrated to Docker.
