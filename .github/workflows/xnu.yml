@@ -145,7 +145,7 @@ jobs:
           xcrun --sdk iphoneos clang \
             -arch arm64 -miphoneos-version-min=16.0 -isysroot "$SDK" \
             -O2 -Wall -Wextra -Werror \
-            tools/ios-net-probe.c -framework SystemConfiguration \
+            tools/ios-net-probe.c -framework SystemConfiguration -framework CoreFoundation \
             -o output/iossweet-net-probe
           codesign --force --sign - output/iossweet-net-probe
           file output/iossweet-net-probe
