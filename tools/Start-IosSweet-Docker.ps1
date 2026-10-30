@@ -28,7 +28,7 @@ param(
     [switch]$Interactive,
     [switch]$NoAutoAssets,
     [switch]$CleanRetry,
-    [ValidateSet('inspect','device-tree','full')][string]$AutoAssetMode = 'full',
+    [ValidateSet('inspect','kernel','device-tree','full')][string]$AutoAssetMode = 'full',
     [switch]$NoShortcut,
     [switch]$NoBrowser,
     [switch]$Stop
@@ -134,6 +134,14 @@ if($networkEnabled -and $savedKernel -eq (Join-Path $repo 'xnu\out-qemu-0086\ker
     $savedKernel=''
 }
 $autoAssets=Join-Path $repo 'docker\local-assets\auto'
+$managedOriginalKernel=Join-Path $autoAssets 'kernel.development.sweet'
+$managedRuntimeKernel=Join-Path $autoAssets 'kernel-keepawake.development.sweet'
+if($networkEnabled -and -not $KernelPath -and $savedKernel -and
+   [IO.Path]::GetFullPath($savedKernel) -eq [IO.Path]::GetFullPath($managedOriginalKernel)){
+    # Upgrade only installer-managed, checksum-pinned kernels. Never change
+    # explicitly selected or user-supplied development kernels.
+    $savedKernel=$managedRuntimeKernel
+}
 $selectedKernel=if($KernelPath){$KernelPath}elseif($savedKernel){$savedKernel}else{$defaultKernel}
 $selectedGuest=if($GuestDisk){$GuestDisk}elseif($saved -and $saved.GuestDisk){[string]$saved.GuestDisk}else{$defaultGuest}
 $selectedAdt=if($DeviceTree){$DeviceTree}elseif($saved -and $saved.DeviceTree){[string]$saved.DeviceTree}else{$defaultAdt}
@@ -142,13 +150,21 @@ if(-not $NoAutoAssets -and -not $CheckOnly -and (
     -not(Test-Path -LiteralPath $selectedGuest -PathType Leaf) -or
     -not(Test-Path -LiteralPath $selectedAdt -PathType Leaf)
 )){
-    $autoKernel=Join-Path $autoAssets 'kernel.development.sweet'
+    $autoKernel=$managedRuntimeKernel
     $autoGuest=Join-Path $autoAssets 'ios16-net-test.raw'
     $autoAdt=Join-Path $autoAssets 'd22ap.adt'
     if(-not((Test-Path $autoKernel) -and (Test-Path $autoGuest) -and (Test-Path $autoAdt))){
+        $effectiveMode=$AutoAssetMode
+        if($AutoAssetMode -eq 'full' -and
+           ((Test-Path $autoGuest) -or (Test-Path $selectedGuest)) -and
+           ((Test-Path $autoAdt) -or (Test-Path $selectedAdt))){
+            # An existing iOS disk needs only the small public-kernel patch;
+            # do not demand 35 GiB or redownload the entire Apple IPSW.
+            $effectiveMode='kernel'
+        }
         $driveRoot=[IO.Path]::GetPathRoot([IO.Path]::GetFullPath($autoAssets))
         $disk=[IO.DriveInfo]::new($driveRoot)
-        if($disk.AvailableFreeSpace -lt 35GB){
+        if($effectiveMode -ne 'kernel' -and $disk.AvailableFreeSpace -lt 35GB){
             throw 'Automatic Apple firmware setup needs at least 35 GB of free disk space. Free space or choose another installation drive.'
         }
         if(-not(Test-Path $autoAssets)){New-Item -ItemType Directory -Force -Path $autoAssets|Out-Null}
@@ -158,7 +174,7 @@ if(-not $NoAutoAssets -and -not $CheckOnly -and (
         Write-Host 'First-time setup: downloading the verified XNU kernel and official Apple iOS firmware; preparing the local guest disk.'
         & docker build -f (Join-Path $repo 'docker\Dockerfile.assets') -t ios-sweet-assets:local $repo
         if($LASTEXITCODE -ne 0){throw 'Docker firmware preparation image build failed.'}
-        & docker run --rm --privileged --name ios-sweet-assets-prepare -v ($autoAssets.Replace([char]92,[char]47)+':/assets') ios-sweet-assets:local --mode $AutoAssetMode
+        & docker run --rm --privileged --name ios-sweet-assets-prepare -v ($autoAssets.Replace([char]92,[char]47)+':/assets') ios-sweet-assets:local --mode $effectiveMode
         if($LASTEXITCODE -ne 0){
             throw 'Automatic firmware setup failed. Downloaded files stay cached locally for retry.'
         }
@@ -175,6 +191,12 @@ if ((Get-Item -LiteralPath $KernelPath).Length -lt 1000000) { throw 'Incomplete 
 if ((Get-Item -LiteralPath $GuestDisk).Length -lt 1GB) { throw 'Guest disk is unexpectedly small.' }
 $KernelPath=(Resolve-Path -LiteralPath $KernelPath).Path
 $GuestDisk=(Resolve-Path -LiteralPath $GuestDisk).Path
+if($KernelPath -eq $managedRuntimeKernel){
+    $actual=(Get-FileHash -LiteralPath $KernelPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if($actual -ne '85039335d05d335d1f9b33f7c8131d274477c50020915ff0335b42428abe998a'){
+        throw 'Installer-managed QEMU keep-awake kernel checksum does not match the verified build.'
+    }
+}
 if (-not $StateDirectory) {
     $oldState=Join-Path $repo 'docker\local-state'
     if ($saved -and $saved.StateDirectory -and [string]$saved.StateDirectory -ne $oldState) {

@@ -29,6 +29,7 @@ $required=@('Install-iOS-Sweet.cmd','Start-iOS-Sweet-Docker.cmd','docker/compose
   'tools/mkadt.py','tools/mkiosroot.sh','tools/remotezip.py',
   'tools/adt.py','tools/sweet-root-tweaks.py','tools/qemu-sweet.py',
   'tools/AutoPrepare-IosSweet.py','tools/Patch-IosSweet-MGCompat.py',
+  'tools/Patch-IosSweet-QemuKernel.py',
   'tools/extract-im4p-adt.py','tools/Ensure-IosSweet-Docker.ps1',
   'tools/Start-IosSweet-Docker.ps1','docs/GITHUB_INSTALL.md')
 foreach($name in $required){if($name -notin $names){throw "Missing tracked package component $name"}}

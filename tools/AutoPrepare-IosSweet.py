@@ -29,6 +29,7 @@ KERNEL_URL = (
     'docker-preview-v0.1.0/kernel.development.sweet'
 )
 KERNEL_SHA256 = '079a3d2d1849e965f9a055f5627d64e33eab94dd9fd26411cbc717037e52825c'
+KEEP_AWAKE_KERNEL_SHA256 = '85039335d05d335d1f9b33f7c8131d274477c50020915ff0335b42428abe998a'
 
 
 def log(message):
@@ -53,6 +54,29 @@ def download_kernel(assets):
     os.replace(partial, out)
     log('VERIFIED_OPEN_SOURCE_KERNEL_DOWNLOAD')
     return out
+
+
+def prepare_qemu_kernel(assets):
+    """Derive a QEMU viewer-safe private kernel from the exact pinned release.
+
+    This is a reversible one-instruction local workaround until the clean
+    XNU source patch 0097 is available as a verified published kernel.
+    Never overwrite the original download or accept a different binary.
+    """
+    original = download_kernel(assets)
+    output = assets / 'kernel-keepawake.development.sweet'
+    if output.exists():
+        if not output.is_file() or output.is_symlink() or sha256(output) != KEEP_AWAKE_KERNEL_SHA256:
+            raise RuntimeError('Unknown cached QEMU runtime kernel; refusing to use it')
+        log('VERIFIED_QEMU_KEEP_AWAKE_KERNEL_CACHED')
+        return output
+    subprocess.run([sys.executable,
+                    str(Path(__file__).with_name('Patch-IosSweet-QemuKernel.py')),
+                    '--source', str(original), '--output', str(output)], check=True)
+    if sha256(output) != KEEP_AWAKE_KERNEL_SHA256:
+        raise RuntimeError('Patched QEMU kernel failed the pinned SHA-256 check')
+    log('VERIFIED_QEMU_KEEP_AWAKE_KERNEL_PREPARED')
+    return output
 
 
 def sha256(path):
@@ -178,20 +202,24 @@ def prepare_root(dest, by_name, parts, assets):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('--mode', choices=('inspect', 'device-tree', 'full'),
+    ap.add_argument('--mode', choices=('inspect', 'kernel', 'device-tree', 'full'),
                     default='full')
     ap.add_argument('--lzfse', default='/usr/local/bin/lzfse')
     ap.add_argument('--assets', type=Path, default=Path('/assets'))
     args = ap.parse_args()
     assets = args.assets.resolve()
     assets.mkdir(parents=True, exist_ok=True)
+    if args.mode == 'kernel':
+        prepare_qemu_kernel(assets)
+        log('IOS_SWEET_QEMU_KERNEL_READY')
+        return
     dest, entries, wanted = get_manifest(assets)
     log('VERIFIED_APPLE_FIRMWARE iPhone10,3 iOS=16.7.16 build=20H392')
     for name, path in wanted.items():
         log(f'COMPONENT {name}: {path} {entries[path][3]} bytes')
     if args.mode == 'inspect':
         return
-    download_kernel(assets)
+    prepare_qemu_kernel(assets)
     prepare_device_tree(dest, entries, wanted, assets, args.lzfse)
     if args.mode == 'full':
         prepare_root(dest, entries, wanted, assets)

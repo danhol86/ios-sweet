@@ -89,8 +89,13 @@ the physical power key, so it does not wake the display. New XNU patch
 `0097-sweet-qemu-display-keep-awake.patch` suppresses *only* this
 power-off transition when QEMU passes `sweet_qemu_keep_awake=1`.
 Physical SWEET devices retain normal display sleep. A newly rebuilt
-XNU kernel is required for this change; older installed kernels ignore
-the boot arg. The guest also exhibits a mobileactivationd SIGTRAP
+XNU kernel is required for the *source-based* fix. Pending a published
+build, the installer can apply the exact matching one-instruction change to
+a separate copy of the verified original development kernel in the user's
+private assets folder. Both original and patched SHA-256 hashes are pinned.
+Live QEMU validation showed the Apple logo **remained visible after the
+`SWEET FB: display off` call**; a stock kernel blacked out the same panel.
+The guest also exhibits a mobileactivationd SIGTRAP
 crash loop, which is a **separate** unsolved iOS startup problem.
 
 ## Running without the installer / in CI

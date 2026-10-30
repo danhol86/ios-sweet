@@ -27,7 +27,7 @@ COPY --from=apfs-build /src/lzfse-build/lzfse /usr/local/bin/lzfse
 COPY --from=apfs-build /src/lzfse-build/liblzfse.so /usr/local/lib/liblzfse.so
 COPY tools/remotezip.py tools/adt.py tools/sweet-root-tweaks.py tools/mkiosroot.sh \
      tools/AutoPrepare-IosSweet.py tools/extract-im4p-adt.py \
-     tools/Patch-IosSweet-MGCompat.py \
+     tools/Patch-IosSweet-MGCompat.py tools/Patch-IosSweet-QemuKernel.py \
      tools/test-ios-system-containers.py /usr/local/share/iossweet-tools/
 COPY docker/prepare-assets.sh /usr/local/bin/iossweet-prepare-assets
 RUN chmod 0755 /usr/local/bin/iossweet-prepare-assets \

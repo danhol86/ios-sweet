@@ -38,6 +38,14 @@ QEMU-only MobileGestalt compatibility change** to the user's derived iOS
 Apple binaries are never distributed or uploaded. Unsupported firmware
 versions are rejected rather than patched blindly. This path remains
 experimental until the iOS home screen is verified after fresh setup.
+The QEMU display's normal auto-lock also fades the only framebuffer to black
+without a usable physical power key. Until the rebuilt XNU kernel from
+source patch 0097 is verified and released, first-time setup derives a
+**separate** runtime kernel from the pinned open-source release with
+`Patch-IosSweet-QemuKernel.py`. The original download is never overwritten,
+the entire derived kernel SHA-256 is verified, and this changes one ARM64
+instruction so the QEMU screen stays visible. A kernel-only retry does not
+need Apple firmware downloads, FUSE access, or privileged Docker.
 To avoid the first-boot activation/LaunchServices data-container stall,
 `sweet-root-tweaks.py` also seeds the standard system container metadata
 with freshly generated local UUIDs and a synthetic QEMU activation state.
