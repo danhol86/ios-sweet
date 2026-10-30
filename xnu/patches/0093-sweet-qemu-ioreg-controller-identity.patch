@@ -35,13 +35,13 @@ diff --git a/iokit/Kernel/arm/SweetQemuNetworkInterface.cpp b/iokit/Kernel/arm/S
          setProperty("IOInterfaceType", 6ULL, 32) &&
          setProperty("IOInterfaceState", 1ULL, 32) &&
          setProperty("IOInterfaceFlags", 0x8843ULL, 32) &&
-@@ -46,20 +53,45 @@
+@@ -46,20 +53,44 @@
      if (platform == NULL) {
          IOLog("SWEET NET: QEMU IOKit interface has no platform expert\n");
          return;
      }
 +    /* Apple's configd expects interface -> controller -> bus in IOService.
-+     * IOBSDName belongs to the interface, hardware MAC and self-naming
++     * BSD Name belongs to interface; hardware MAC
 +     * belong to the controller.  Neither object drives a second BSD ifnet. */
 +    SweetQemuEthernetController *controller = new SweetQemuEthernetController;
 +    if (controller == NULL || !controller->init()) {
@@ -52,7 +52,6 @@ diff --git a/iokit/Kernel/arm/SweetQemuNetworkInterface.cpp b/iokit/Kernel/arm/S
 +    controller->setName("sweet-qemu-virtio-net");
 +    uint8_t mac[6] = {0x02, 0x50, 0x53, 0x57, 0x00, 0x01};
 +    bool controllerReady = controller->setProperty("IOMACAddress", mac, sizeof(mac)) &&
-+        controller->setProperty("IOSelfNamed", true) &&
 +        controller->setProperty("IOFeatures", 0ULL, 32);
 +    if (!controllerReady || !controller->attach(platform) ||
 +        !controller->start(platform)) {
