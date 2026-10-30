@@ -130,6 +130,7 @@ static void try_private_dns_store(void)
     typedef Boolean (*set_fn)(void *, CFStringRef, CFPropertyListRef);
     typedef int (*scerror_fn)(void);
     typedef CFPropertyListRef (*copy_fn)(void *, CFStringRef);
+    static void *kept_store = NULL;
     void *framework = dlopen(
         "/System/Library/Frameworks/SystemConfiguration.framework/SystemConfiguration",
         RTLD_LAZY);
@@ -169,6 +170,53 @@ static void try_private_dns_store(void)
             if (entry) CFRelease(entry);
         }
     }
+    /* QEMU already gives en0 a real BSD address/default route. iOS does
+       not have the corresponding *dynamic* service/primary-interface
+       announcements. Recreate those, only in the isolated test guest. */
+    CFMutableDictionaryRef serviceIPv4 = CFDictionaryCreateMutable(
+        NULL, 0, &kCFTypeDictionaryKeyCallBacks,
+        &kCFTypeDictionaryValueCallBacks);
+    const void *hostAddresses[1] = { CFSTR("10.0.2.15") };
+    const void *hostMasks[1] = { CFSTR("255.255.255.0") };
+    CFArrayRef addresses = CFArrayCreate(
+        NULL, hostAddresses, 1, &kCFTypeArrayCallBacks);
+    CFArrayRef masks = CFArrayCreate(
+        NULL, hostMasks, 1, &kCFTypeArrayCallBacks);
+    CFDictionarySetValue(serviceIPv4, CFSTR("Addresses"), addresses);
+    CFDictionarySetValue(serviceIPv4, CFSTR("SubnetMasks"), masks);
+    CFDictionarySetValue(serviceIPv4, CFSTR("Router"), CFSTR("10.0.2.2"));
+    CFDictionarySetValue(serviceIPv4, CFSTR("InterfaceName"), CFSTR("en0"));
+    Boolean ok = set(store,
+        CFSTR("State:/Network/Service/CA9E6055-8C86-514A-B8BE-57D7F8A04B1B/IPv4"),
+        serviceIPv4);
+    printf("private_dns_store service_ipv4_set=%d sc_error=%d\n",
+           (int)ok, ok ? 0 : (scerror ? scerror() : -1));
+    CFRelease(serviceIPv4);
+    CFRelease(addresses);
+    CFRelease(masks);
+
+    CFMutableDictionaryRef globalIPv4 = CFDictionaryCreateMutable(
+        NULL, 0, &kCFTypeDictionaryKeyCallBacks,
+        &kCFTypeDictionaryValueCallBacks);
+    CFDictionarySetValue(globalIPv4, CFSTR("PrimaryService"),
+        CFSTR("CA9E6055-8C86-514A-B8BE-57D7F8A04B1B"));
+    CFDictionarySetValue(globalIPv4, CFSTR("PrimaryInterface"),
+        CFSTR("en0"));
+    CFDictionarySetValue(globalIPv4, CFSTR("Router"), CFSTR("10.0.2.2"));
+    ok = set(store, CFSTR("State:/Network/Global/IPv4"), globalIPv4);
+    printf("private_dns_store global_ipv4_set=%d sc_error=%d\n",
+           (int)ok, ok ? 0 : (scerror ? scerror() : -1));
+    CFRelease(globalIPv4);
+
+    CFMutableDictionaryRef link = CFDictionaryCreateMutable(
+        NULL, 0, &kCFTypeDictionaryKeyCallBacks,
+        &kCFTypeDictionaryValueCallBacks);
+    CFDictionarySetValue(link, CFSTR("Active"), kCFBooleanTrue);
+    ok = set(store, CFSTR("State:/Network/Interface/en0/Link"), link);
+    printf("private_dns_store ethernet_link_set=%d sc_error=%d\n",
+           (int)ok, ok ? 0 : (scerror ? scerror() : -1));
+    CFRelease(link);
+
     CFMutableDictionaryRef dns = CFDictionaryCreateMutable(
         NULL, 0, &kCFTypeDictionaryKeyCallBacks,
         &kCFTypeDictionaryValueCallBacks);
@@ -177,17 +225,29 @@ static void try_private_dns_store(void)
         NULL, server, 1, &kCFTypeArrayCallBacks);
     CFDictionarySetValue(dns, CFSTR("ServerAddresses"), servers);
     CFDictionarySetValue(dns, CFSTR("InterfaceName"), CFSTR("en0"));
-    Boolean ok = set(store, CFSTR("State:/Network/Global/DNS"), dns);
+    ok = set(store, CFSTR("State:/Network/Global/DNS"), dns);
     printf("private_dns_store global_dns_set=%d sc_error=%d\n",
-           (int)ok, scerror ? scerror() : -1);
+           (int)ok, ok ? 0 : (scerror ? scerror() : -1));
     CFStringRef key = CFSTR(
         "State:/Network/Service/CA9E6055-8C86-514A-B8BE-57D7F8A04B1B/DNS");
     ok = set(store, key, dns);
     printf("private_dns_store service_dns_set=%d sc_error=%d\n",
-           (int)ok, scerror ? scerror() : -1);
+           (int)ok, ok ? 0 : (scerror ? scerror() : -1));
+    if (copy) {
+        CFPropertyListRef verify = copy(
+            store, CFSTR("State:/Network/Global/IPv4"));
+        printf("private_dns_store verify_global_ipv4=%d\n", verify != NULL);
+        if (verify) CFRelease(verify);
+        verify = copy(store, CFSTR("State:/Network/Global/DNS"));
+        printf("private_dns_store verify_global_dns=%d\n", verify != NULL);
+        if (verify) CFRelease(verify);
+    }
     CFRelease(servers);
     CFRelease(dns);
-    CFRelease((CFTypeRef)store);
+    /* Keep the configd session alive for the subsequent resolver request.
+       There must not be a time-of-check/time-of-use gap in this experiment. */
+    kept_store = store;
+    (void)kept_store;
     if (framework) dlclose(framework);
 }
 
