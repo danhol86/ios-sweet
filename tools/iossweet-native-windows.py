@@ -1,0 +1,364 @@
+#!/usr/bin/env python3
+"""Run the existing SWEET ARM64 payload in native Windows QEMU.
+
+No Docker/WSL runtime is used. Apple firmware is supplied privately by
+the user; the prepared iOS root disk is always mounted read-only under a
+separate native QCOW2 overlay. QMP binds only to Windows loopback.
+The simulator remains experimental: ARM64 on x86 uses QEMU TCG software
+emulation, and Safari's iOS-side network readiness is not yet proven.
+"""
+import argparse
+import ctypes
+import datetime
+import importlib.util
+import json
+import os
+from pathlib import Path
+import shutil
+import socket
+import struct
+import subprocess
+import sys
+import threading
+import time
+import webbrowser
+
+ROOT = Path(__file__).resolve().parent.parent
+TOOL = Path(__file__).resolve().parent
+sys.path.insert(0, str(TOOL))
+
+spec = importlib.util.spec_from_file_location('iossweet_qemu', TOOL / 'qemu-sweet.py')
+qemu = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(qemu)
+view_spec = importlib.util.spec_from_file_location('iossweet_viewer', TOOL / 'qemu-live-screen.py')
+viewer = importlib.util.module_from_spec(view_spec)
+view_spec.loader.exec_module(viewer)
+
+QEMU_DIR = Path(os.environ.get('IOS_SWEET_QEMU_DIR', r'C:\Program Files\qemu'))
+
+
+def log(message):
+    print(message, flush=True)
+
+
+def free_ram_gib():
+    class MEMORYSTATUSEX(ctypes.Structure):
+        _fields_ = [('dwLength', ctypes.c_ulong),
+                    ('dwMemoryLoad', ctypes.c_ulong),
+                    ('ullTotalPhys', ctypes.c_ulonglong),
+                    ('ullAvailPhys', ctypes.c_ulonglong),
+                    ('ullTotalPageFile', ctypes.c_ulonglong),
+                    ('ullAvailPageFile', ctypes.c_ulonglong),
+                    ('ullTotalVirtual', ctypes.c_ulonglong),
+                    ('ullAvailVirtual', ctypes.c_ulonglong),
+                    ('ullAvailExtendedVirtual', ctypes.c_ulonglong)]
+    memory = MEMORYSTATUSEX()
+    memory.dwLength = ctypes.sizeof(memory)
+    if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(memory)):
+        raise OSError('Unable to read Windows available RAM')
+    return memory.ullAvailPhys / (1 << 30)
+
+
+def check_single_instance():
+    # On this PC, the old QEMU Docker guest must not overlap a native run.
+    try:
+        result = subprocess.run(['docker', 'ps', '--format', '{{.Names}}'],
+                                capture_output=True, text=True, timeout=8)
+        if result.returncode == 0 and any(
+                x.startswith(('ios-sweet-qemu-', 'ios-sweet-netprobe-'))
+                for x in result.stdout.splitlines()):
+            raise RuntimeError('Docker iOS Sweet is still running. Stop it first; never run two iOS guests.')
+    except FileNotFoundError:
+        pass  # Docker is not required on Windows.
+    except subprocess.TimeoutExpired:
+        raise RuntimeError('Docker state could not be checked; refusing potential duplicate guest')
+    result = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq qemu-system-aarch64.exe',
+                             '/FO', 'CSV', '/NH'], capture_output=True,
+                            text=True, timeout=10)
+    if result.returncode or 'qemu-system-aarch64.exe' in result.stdout.lower():
+        raise RuntimeError('Another native ARM64 QEMU may be running; stop it before starting.')
+
+
+def validate_file(path, description):
+    path = path.resolve(strict=True)
+    if not path.is_file():
+        raise ValueError(description + ' must be an existing file')
+    return path
+
+
+def slash(path):
+    return str(path).replace('\\', '/')
+
+
+def check_overlay(qemu_img, disk, overlay):
+    if overlay.exists():
+        data = json.loads(subprocess.check_output(
+            [str(qemu_img), 'info', '--output=json', slash(overlay)],
+            text=True, timeout=30))
+        backing = data.get('full-backing-filename') or data.get('backing-filename')
+        if (data.get('format') != 'qcow2' or not backing
+                or data.get('backing-filename-format') != 'raw'
+                or slash(Path(backing).resolve()).lower() != slash(disk).lower()):
+            raise RuntimeError('Existing Windows overlay has a different backing disk. Refusing to modify it.')
+    else:
+        overlay.parent.mkdir(parents=True, exist_ok=True)
+        prior = ROOT / 'docker/local-state/oneclick/ios.qcow2'
+        if prior.is_file() and prior.resolve() != overlay.resolve():
+            # The DNS/SystemConfiguration bootstrap and iOS app preferences
+            # are in this private overlay. Preserve them when switching
+            # away from Docker. Never edit the source Docker QCOW2.
+            if prior.is_symlink():
+                raise RuntimeError('Old overlay is a symlink; refusing migration')
+            partial = Path(str(overlay)+'.migrating')
+            if partial.exists() or partial.is_symlink():
+                raise RuntimeError('Old native migration scratch must be reviewed before retry')
+            try:
+                shutil.copy2(prior, partial)
+                subprocess.run([str(qemu_img), 'rebase', '-u', '-f', 'qcow2',
+                                '-F', 'raw', '-b', slash(disk), slash(partial)],
+                               check=True, timeout=60)
+                validate_overlay_info(qemu_img, disk, partial)
+                os.replace(partial, overlay)
+                log('MIGRATED_PRIVATE_DOCKER_OVERLAY_WITH_NEW_WINDOWS_BACKING_PATH')
+            finally:
+                partial.unlink(missing_ok=True)
+        else:
+            subprocess.run([str(qemu_img), 'create', '-f', 'qcow2',
+                            '-F', 'raw', '-b', slash(disk), slash(overlay)],
+                           check=True, timeout=30)
+        check_overlay(qemu_img, disk, overlay)
+
+
+def validate_overlay_info(qemu_img, disk, overlay):
+    data = json.loads(subprocess.check_output(
+        [str(qemu_img), 'info', '--output=json', slash(overlay)],
+        text=True, timeout=30))
+    backing = data.get('full-backing-filename') or data.get('backing-filename')
+    if (data.get('format') != 'qcow2' or not backing
+            or data.get('backing-filename-format') != 'raw'
+            or slash(Path(backing).resolve()).lower() != slash(disk).lower()):
+        raise RuntimeError('QCOW2 has incorrect backing disk; refusing to boot')
+
+
+def check_ports(qmp_port, viewer_port):
+    if qmp_port == viewer_port:
+        raise ValueError('QMP and viewer must use different ports')
+    for port in (qmp_port, viewer_port):
+        with socket.socket() as sock:
+            sock.bind(('127.0.0.1', port))
+
+
+def stop_native(state):
+    active = state / 'active-native.json'
+    if not active.is_file():
+        log('NO_ACTIVE_NATIVE_IOS_GUEST')
+        return
+    record = json.loads(active.read_text())
+    port = int(record['qmp_port'])
+    if not (1 <= port <= 65535):
+        raise ValueError('Invalid saved QMP port')
+    # Request an orderly QEMU exit to flush the QCOW2 overlay. Never kill an
+    # unrelated process or erase the persistent native guest disk.
+    with qemu.connect_qmp(f'tcp://127.0.0.1:{port}') as connection:
+        file = connection.makefile('rw')
+        if not file.readline():
+            raise RuntimeError('Native QEMU did not reply to QMP handshake')
+        file.write('{"execute":"qmp_capabilities"}\n')
+        file.flush()
+        while True:
+            result = json.loads(file.readline())
+            if 'return' in result or 'error' in result:
+                if 'error' in result:
+                    raise RuntimeError(str(result['error']))
+                break
+        file.write('{"execute":"quit"}\n')
+        file.flush()
+    log('NATIVE_QEMU_GRACEFUL_SHUTDOWN_REQUESTED')
+
+
+def prepare(args, state, qemu_bin, qemu_img, require_ram=True):
+    kernel = validate_file(args.kernel, 'Kernel')
+    disk = validate_file(args.disk, 'Apple iOS root disk')
+    # The Apple d22ap tree is retained privately for firmware preparation.
+    # QEMU's virt board MUST use the project's generated QEMU-specific ADT:
+    # the actual iPhone tree lacks /chosen/dram-base and MMIO virt addresses.
+    if disk.stat().st_size != 16 * (1 << 30):
+        raise ValueError('Expected the verified 16 GiB iOS HFSX disk')
+    if args.kernel_sha256:
+        import hashlib
+        digest = hashlib.sha256(kernel.read_bytes()).hexdigest()
+        if digest.lower() != args.kernel_sha256.lower():
+            raise RuntimeError('Kernel checksum mismatch: refusing boot')
+    run = state / ('windows-qemu-' + datetime.datetime.utcnow().strftime('%Y%m%d-%H%M%S'))
+    if run.exists():
+        raise RuntimeError('Existing native run directory: '+str(run))
+    run.mkdir(parents=True)
+    qemu_adt = run / 'qemu.adt'
+    subprocess.run([sys.executable, str(TOOL / 'mkadt.py'),
+                    str(qemu_adt), '--qemu', '--highmem', '--qemu-cpus=1'],
+                   check=True, timeout=60)
+    cmdline = (
+        'debug=0xc serial=3 cpus=1 keepsyms=1 -enable_kprintf_spam '
+        '-noprogress rd=virtiodisk0 unentitled_ios_sim_launch=1 rootrw=1 '
+        'launchd_unsecure_cache=1 ignition_level=1 wdt_test=no_user_checkin '
+        'wdt=-1 sweetsample=SpringBoard,lsd,MobileGestaltHel,backboardd '
+        'sweetsample_delay=12 sweetsample_interval=25 '
+        'sweet_qemu_keep_awake=1 sweetfb_noconsole=1 '
+        'sweet_qemu_network_delegate=1 sweet_qemu_network_trace=1 '
+        'sweet_qemu_necp_trace=1'
+    )
+    payload = run / 'payload.bin'
+    subprocess.run([sys.executable, str(TOOL / 'mkpayload.py'),
+                    str(kernel), str(qemu_adt), str(payload), '--cmdline', cmdline],
+                   check=True, timeout=90)
+    data = payload.read_bytes()
+    phys, image, ba_pa, entry = qemu.build_image(data)
+    (run / 'ram.bin').write_bytes(image)
+    (run / 'stub.bin').write_bytes(qemu.stub(ba_pa, entry))
+    mem_size = struct.unpack_from('<Q', data, 0x40)[0]
+    ram_gib = max(4, -(-(phys + mem_size - 0x40000000) // (1 << 30)))
+    if ram_gib > 12:
+        raise ValueError('Unexpected guest RAM size')
+    # This is a guard against making an already paging Windows host much
+    # slower. User can free RAM and retry without touching any saved overlay.
+    available = free_ram_gib()
+    if require_ram and available < ram_gib:
+        raise RuntimeError(f'Windows has only {available:.1f} GiB free, but this QEMU '
+                           f'guest maps {ram_gib} GiB. Close other memory-heavy '
+                           'programs before switching to native Windows.')
+    if require_ram:
+        check_overlay(qemu_img, disk, args.overlay)
+    log(f'PREPARED_NATIVE_QEMU_GUEST_RAM={ram_gib}GiB WINDOWS_FREE={available:.1f}GiB')
+    return run, disk, ram_gib, phys
+
+
+def start(args):
+    if os.name != 'nt':
+        raise RuntimeError('Native Windows backend must be run from Windows, not Docker or WSL')
+    qemu_bin = QEMU_DIR / 'qemu-system-aarch64.exe'
+    qemu_img = QEMU_DIR / 'qemu-img.exe'
+    for path in (qemu_bin, qemu_img):
+        validate_file(path, 'Native QEMU executable')
+    check_single_instance()
+    check_ports(args.qmp_port, args.port)
+    state = args.state.resolve()
+    state.mkdir(parents=True, exist_ok=True)
+    run, disk, ram_gib, phys = prepare(args, state, qemu_bin, qemu_img)
+    endpoint = f'tcp://127.0.0.1:{args.qmp_port}'
+    argv = [str(qemu_bin), '-M', 'virt,gic-version=3',
+            '-accel', 'tcg,thread=multi',
+            '-global', 'virtio-mmio.force-legacy=false',
+            '-cpu', 'cortex-a76', '-smp', '1', '-m', f'{ram_gib}G',
+            '-nic', 'none', '-nographic',
+            '-serial', 'file:' + slash(run / 'serial.txt'),
+            '-qmp', f'tcp:127.0.0.1:{args.qmp_port},server=on,wait=off',
+            '-d', 'guest_errors,unimp',
+            '-D', slash(run / 'qemu.log'),
+            '-no-reboot',
+            '-device', f'loader,file={slash(run / "ram.bin")},addr={phys:#x},force-raw=on',
+            '-device', f'loader,file={slash(run / "stub.bin")},addr={qemu.STUB_PA:#x},force-raw=on',
+            '-device', f'loader,addr={qemu.STUB_PA:#x},cpu-num=0',
+            '-drive', f'if=none,id=iosroot,format=qcow2,file={slash(args.overlay)},snapshot=off',
+            '-device', 'virtio-blk-device,drive=iosroot',
+            '-device', 'virtio-tablet-device,id=sweet-tablet',
+            '-netdev', 'user,id=sweetnet,net=10.0.2.0/24',
+            '-device', 'virtio-net-device,netdev=sweetnet,mac=02:50:53:57:00:01',
+            '-object', f'filter-dump,id=sweetdump,netdev=sweetnet,file={slash(run / "network.pcap")}']
+    (run / 'command.json').write_text(json.dumps(argv[1:], indent=2))
+    log('NATIVE_WINDOWS_QEMU='+str(qemu_bin))
+    qemu_log = (run / 'qemu-stdout.txt').open('w', encoding='utf-8')
+    process = None
+    server = None
+    try:
+        process = subprocess.Popen(argv, stdin=subprocess.DEVNULL,
+                                   stdout=qemu_log, stderr=subprocess.STDOUT,
+                                   creationflags=subprocess.CREATE_NO_WINDOW)
+        for _ in range(100):
+            if process.poll() is not None:
+                raise RuntimeError(f'Native QEMU exited {process.returncode}; inspect {run / "qemu-stdout.txt"}')
+            try:
+                with qemu.connect_qmp(endpoint) as conn:
+                    if conn.recv(512):
+                        break
+            except (ConnectionError, OSError):
+                time.sleep(.2)
+        else:
+            raise RuntimeError('Native QEMU QMP did not become ready')
+        viewer.ViewerHandler.outdir = run
+        viewer.ViewerHandler.input_enabled = True
+        viewer.ViewerHandler.qmp_tcp = endpoint
+        server = viewer.HTTPServer(('127.0.0.1', args.port), viewer.ViewerHandler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        (state / 'active-native.json').write_text(json.dumps({
+            'qemu_pid': process.pid, 'qmp_port': args.qmp_port,
+            'viewer_port': args.port, 'run': str(run)}, indent=2))
+        log(f'NATIVE_WINDOWS_VIEWER_READY=http://127.0.0.1:{args.port}/')
+        if not args.no_browser:
+            webbrowser.open(f'http://127.0.0.1:{args.port}/')
+        while process.poll() is None:
+            time.sleep(.5)
+        log('QEMU_EXITED='+str(process.returncode))
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if server:
+            server.shutdown()
+            server.server_close()
+        if process and process.poll() is None:
+            try:
+                qemu.qmp(endpoint, 'quit')
+                process.wait(timeout=12)
+            except (OSError, subprocess.TimeoutExpired):
+                process.terminate()
+        qemu_log.close()
+        active = state / 'active-native.json'
+        if active.is_file():
+            active.unlink()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--kernel', type=Path, default=ROOT / 'docker/local-assets/auto/kernel-keepawake.development.sweet')
+    parser.add_argument('--disk', type=Path, default=ROOT / 'docker/local-guest/ios16-net-test.raw')
+    parser.add_argument('--device-tree', type=Path, default=ROOT / 'research/ipsw-x/d22ap.adt')
+    parser.add_argument('--overlay', type=Path, default=ROOT / 'docker/local-state/native-windows/ios.qcow2')
+    parser.add_argument('--state', type=Path, default=ROOT / 'docker/local-state/native-windows')
+    parser.add_argument('--kernel-sha256', default='85039335d05d335d1f9b33f7c8131d274477c50020915ff0335b42428abe998a')
+    parser.add_argument('--port', type=int, default=8108)
+    parser.add_argument('--qmp-port', type=int, default=4444)
+    parser.add_argument('--no-browser', action='store_true')
+    parser.add_argument('--check', action='store_true', help='validate native Windows dependencies without starting or stopping a guest')
+    parser.add_argument('--prepare-only', action='store_true',
+                        help='build QEMU RAM/boot images using native Windows Python without starting a guest or changing any iOS disk')
+    parser.add_argument('--stop', action='store_true', help='ask the Windows QEMU guest to exit cleanly')
+    args = parser.parse_args()
+    if args.stop:
+        stop_native(args.state)
+        return
+    if args.check:
+        print('WINDOWS_NATIVE_QEMU='+str(QEMU_DIR / 'qemu-system-aarch64.exe'))
+        print('QEMU_INSTALLED='+(str((QEMU_DIR / 'qemu-system-aarch64.exe').is_file())))
+        print('KERNEL_AVAILABLE='+str(args.kernel.is_file()))
+        print('IOS_DISK_AVAILABLE='+str(args.disk.is_file()))
+        print('DEVICE_TREE_AVAILABLE='+str(args.device_tree.is_file()))
+        print(f'WINDOWS_FREE_RAM_GIB={free_ram_gib():.2f}')
+        print('NATIVE_ARM64_ACCEL=TCG_SOFTWARE_ONLY')
+        return
+    if args.prepare_only:
+        if os.name != 'nt':
+            raise RuntimeError('Windows-only preparation')
+        state = args.state.resolve()
+        state.mkdir(parents=True, exist_ok=True)
+        run, disk, ram_gib, phys = prepare(args, state,
+            validate_file(QEMU_DIR/'qemu-system-aarch64.exe','QEMU executable'),
+            validate_file(QEMU_DIR/'qemu-img.exe','QEMU img executable'),
+            require_ram=False)
+        print('NATIVE_WINDOWS_PAYLOAD_PREPARED='+str(run/'payload.bin'))
+        print('NATIVE_WINDOWS_REQUIRED_RAM_GIB='+str(ram_gib))
+        print('NATIVE_WINDOWS_GUEST_NOT_STARTED')
+        return
+    start(args)
+
+
+if __name__ == '__main__':
+    main()

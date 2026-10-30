@@ -67,3 +67,24 @@ Do not force policy result flags to success or fake network capability.
 
 **Current status:** Browser rendering and HTTPS page loading have **not**
 passed. Keep the release labelled experimental.
+
+## Updated evidence: later October 30 browser test
+
+The later oneclick capture `desktop-qemu-20261030-163101/network.pcap`
+*does* contain requests from Safari/WebKit toward Google. The sanitized
+`tools/check-safari-pcap.py` analysis showed four
+`www.google.com` DNS queries, successful A records, an outbound SYN,
+an inbound SYN/ACK, a TLS ClientHello and a TLS ServerHello from a Google
+IPv4 address. XNU tracing also shows
+`com.apple.WebKit` network-policy results with interface index 4,
+socket creation, and `connectx` returning EINPROGRESS.
+
+This supersedes the earlier captures where there were no Google requests.
+It proves DNS/TCP/TLS *transport progress*, **not a rendered webpage**.
+Only roughly 517 TCP application bytes were sent by the guest on that
+Google connection, versus 2762 received, consistent with TLS negotiation
+without a completed HTTP request. Investigate WebKit's TLS/crypto/trust,
+response handling and renderer rather than assuming the QEMU NAT path is
+completely disconnected. Running QEMU directly on Windows is an
+independent performance experiment and will not repair this iOS userland
+issue by itself.

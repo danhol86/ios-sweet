@@ -32,6 +32,21 @@ testing, but **Safari web pages can still render blank**; this is an
 experimental development preview, not a complete iOS simulator. The
 Windows/Docker installer never flashes the phone.
 
+### Direct Windows QEMU runtime (development branch)
+
+There is also an experimental **native Windows QEMU** launch path that does
+not run the emulator in Docker or WSL. Install Windows QEMU, supply the
+locally prepared private iOS disk and verified kernel, then double-click
+`Start-iOS-Sweet-Windows.cmd`. It preserves the previous Docker guest
+overlay by making a separate copy for Windows. See
+**[Native Windows installation and limitations](docs/NATIVE_WINDOWS.md)**.
+
+On x86 Windows, the verified QEMU build offers **TCG software emulation,
+not hardware-accelerated ARM64**. A substantial speedup is not guaranteed,
+and the 7 GiB iOS guest requires enough free host memory. The native boot
+has passed offline boot-payload and QMP tests, but an interactive native
+iOS boot has **not yet been verified**.
+
 > **Physical-phone installation only:** Experimental bring-up, not a usable phone OS. Many things are missing or stubbed (see below), and Apple's security model is mostly switched off. Flashing the phone installs into the `userdata` partition and so **erases Android's user data**. The Windows/Docker installer does not flash a phone.
 
 ## What works

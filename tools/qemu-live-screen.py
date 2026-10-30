@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Local-only live framebuffer viewer for a running qemu-sweet.py VM.
 
-Serves successive QMP pmemsave snapshots in a Windows browser via WSL2
-localhost forwarding. With --enable-input, pointer events are sent to QEMU
-VirtIO tablet; an iOS guest driver is still required to consume them.
+Serves successive QMP pmemsave snapshots in a Windows browser from Docker.
+With --enable-input, pointer events are sent to QEMU's VirtIO tablet.
+The emulated iOS HID driver polls input asynchronously; a normal fast desktop
+click must be stretched into a real tap so both edges reach SpringBoard.
 """
 import argparse
 import importlib.util
@@ -39,12 +40,17 @@ small{display:block;margin-top:12px;color:#8995a8}
 <div id="state">Connecting to QEMU...</div>
 <img id="frame" alt="QEMU iPhone framebuffer">
 <button type="button" id="swipehome">Swipe up / Home</button>
-<p>Click or drag directly on the iPhone image. Swipe from the very bottom white bar to return Home, or use the button.</p>
+<p>Click an app normally or drag on the iPhone screen. Swipe from the bottom bar to return Home, or use the button.</p>
 <small>Local development viewer. Close this page to stop polling; the VM is managed separately.</small>
 </main><script>
 var img=document.getElementById("frame"), state=document.getElementById("state");
 var busy=false;
-var inputEnabled=INPUT_ENABLED, pointerActive=false, lastPointer=0;
+var inputEnabled=INPUT_ENABLED, pointerActive=false, lastPointer=0, activeTap=null;
+// QEMU sends tablet events asynchronously. A desktop mouse click often lasts
+// less than one emulated poll; SpringBoard never sees a complete iOS tap.
+// Serialize all QMP requests, and hold the down state for at least 240 ms
+// AFTER QEMU acknowledges it. Gestures still send intermediate positions.
+var MIN_TAP_MS=240, touchQueue=Promise.resolve();
 var homeButton=document.getElementById("swipehome");
 homeButton.disabled=!inputEnabled;
 async function refresh(){
@@ -61,36 +67,60 @@ async function refresh(){
  finally {busy=false;}
 }
 refresh();setInterval(refresh,1600);
-async function sendPointer(ev,down) {
- if(!inputEnabled)return;
+function coords(ev) {
  var b=img.getBoundingClientRect();
- if(b.width<=0 || b.height<=0)return;
+ if(b.width<=0 || b.height<=0)return null;
  var x=Math.min(1,Math.max(0,(ev.clientX-b.left)/b.width));
  var y=Math.min(1,Math.max(0,(ev.clientY-b.top)/b.height));
- try {
-   var r=await fetch("/touch",{method:"POST",headers:{"Content-Type":"application/json"},
-     body:JSON.stringify({x:x,y:y,down:down})});
-   if(!r.ok)state.textContent="Tablet event rejected by QEMU ("+r.status+")";
- } catch(e){state.textContent="Tablet input error: "+e.message;}
+ return {x:x,y:y};
+}
+function delay(ms){return new Promise(function(resolve){setTimeout(resolve,ms)});}
+async function sendRawTouch(x,y,down) {
+ var r=await fetch("/touch",{method:"POST",headers:{"Content-Type":"application/json"},
+   body:JSON.stringify({x:x,y:y,down:down})});
+ if(!r.ok)throw new Error("QEMU rejected touchscreen input ("+r.status+")");
+}
+function queueTouch(x,y,down,tap,minimumHold) {
+ var next=touchQueue.then(async function(){
+   if(!down && minimumHold && tap && tap.ackAt) {
+     await delay(Math.max(0,minimumHold-(Date.now()-tap.ackAt)));
+   }
+   await sendRawTouch(x,y,down);
+   if(down && tap && !tap.ackAt)tap.ackAt=Date.now();
+ });
+ // Keep a resolved tail even if an earlier request failed so the next
+ // tap can recover. The state line reports network/QMP errors.
+ touchQueue=next.catch(function(error){state.textContent="Touch input failed: "+error.message;});
+ return touchQueue;
 }
 img.addEventListener("pointerdown",function(e){
- if(!inputEnabled)return;
- e.preventDefault();pointerActive=true;img.setPointerCapture(e.pointerId);
- sendPointer(e,true);
+ if(!inputEnabled || pointerActive)return;
+ var p=coords(e);if(!p)return;
+ e.preventDefault();pointerActive=true;lastPointer=0;
+ activeTap={ackAt:0,startX:e.clientX,startY:e.clientY,moved:false};
+ img.setPointerCapture(e.pointerId);
+ queueTouch(p.x,p.y,true,activeTap,0);
 });
 img.addEventListener("pointermove",function(e){
- if(!pointerActive || !inputEnabled || Date.now()-lastPointer<25)return;
- lastPointer=Date.now();sendPointer(e,true);
+ if(!pointerActive || !inputEnabled)return;
+ var tap=activeTap;
+ if(tap && (Math.abs(e.clientX-tap.startX)>8 || Math.abs(e.clientY-tap.startY)>8))tap.moved=true;
+ if(Date.now()-lastPointer<45)return;
+ var p=coords(e);if(!p)return;
+ lastPointer=Date.now();queueTouch(p.x,p.y,true,tap,0);
 });
 function pointerUp(e){
- if(!pointerActive)return;pointerActive=false;sendPointer(e,false);
+ if(!pointerActive)return;
+ pointerActive=false;
+ var p=coords(e),tap=activeTap;activeTap=null;
+ if(!p)return;
+ // A swipe must remain a swipe; only brief stationary taps are lengthened.
+ queueTouch(p.x,p.y,false,tap,tap && !tap.moved ? MIN_TAP_MS : 0);
 }
 img.addEventListener("pointerup",pointerUp);
 img.addEventListener("pointercancel",pointerUp);
 async function sendAt(x,y,down){
- var r=await fetch("/touch",{method:"POST",headers:{"Content-Type":"application/json"},
-   body:JSON.stringify({x:x,y:y,down:down})});
- if(!r.ok)throw new Error("QEMU rejected touchscreen input ("+r.status+")");
+ return queueTouch(x,y,down,null,0);
 }
 homeButton.addEventListener("click",async function(){
  if(!inputEnabled)return;
@@ -109,9 +139,8 @@ homeButton.addEventListener("click",async function(){
 </script></body></html>"""
 
 def qmp_tablet_event(sockpath, events):
-    with socket.socket(socket.AF_UNIX) as conn:
+    with qemu.connect_qmp(sockpath) as conn:
         conn.settimeout(5)
-        conn.connect(str(sockpath))
         f=conn.makefile("rw")
         if not f.readline():
             raise RuntimeError("QMP unavailable")
@@ -131,6 +160,7 @@ def qmp_tablet_event(sockpath, events):
 class ViewerHandler(BaseHTTPRequestHandler):
     outdir = None
     input_enabled = False
+    qmp_tcp = None
     def do_GET(self):
         path = urlsplit(self.path).path
         if path == "/":
@@ -140,11 +170,11 @@ class ViewerHandler(BaseHTTPRequestHandler):
                 "INPUT_ENABLED","true" if self.input_enabled else "false").encode()
             mime = "text/html; charset=utf-8"
         elif path == "/frame.png":
-            mon = self.outdir / "mon.sock"
+            mon = self.qmp_tcp or self.outdir / "mon.sock"
             rawfile = self.outdir / "viewer-frame.raw"
             pngfile = self.outdir / "viewer-frame.png"
             try:
-                if not mon.exists():
+                if not self.qmp_tcp and not mon.exists():
                     raise FileNotFoundError(mon)
                 qemu.qmp(str(mon), pmemsave=(qemu.FB_BASE, qemu.FB_STRIDE * qemu.FB_H, str(rawfile)))
                 raw = rawfile.read_bytes()
@@ -195,7 +225,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
                 {"type":"abs","data":{"axis":"y","value":round(y*32767)}},
                 {"type":"btn","data":{"button":"left","down":down}},
             ]
-            qmp_tablet_event(self.outdir/"mon.sock",events)
+            qmp_tablet_event(self.qmp_tcp or self.outdir/"mon.sock",events)
         except (ValueError,TypeError,KeyError,IndexError,json.JSONDecodeError):
             self.send_error(400,"Bad tablet event")
             return
@@ -212,6 +242,8 @@ def main():
     ap.add_argument("outdir", type=Path, help="RUN_OUT used by a running qemu-sweet.py")
     ap.add_argument("--port", type=int, default=8099)
     ap.add_argument("--host", default="127.0.0.1", help="bind address (0.0.0.0 for container only)")
+    ap.add_argument("--qmp-tcp", default=None,
+                    help="native Windows QEMU monitor endpoint tcp://127.0.0.1:PORT")
     ap.add_argument("--enable-input", action="store_true",
                     help="send browser pointer events to QEMU VirtIO tablet (iOS kernel HID driver still required)")
     a=ap.parse_args()
@@ -219,6 +251,10 @@ def main():
         ap.error("QEMU output directory does not exist")
     ViewerHandler.outdir=a.outdir.resolve()
     ViewerHandler.input_enabled=a.enable_input
+    if a.qmp_tcp and not (a.qmp_tcp.startswith('tcp://127.0.0.1:') or
+                          a.qmp_tcp.startswith('tcp://localhost:')):
+        ap.error('QMP TCP endpoint must bind localhost')
+    ViewerHandler.qmp_tcp=a.qmp_tcp
     server=HTTPServer((a.host,a.port),ViewerHandler)
     print(f"Local QEMU framebuffer viewer: http://127.0.0.1:{a.port}/", flush=True)
     try: server.serve_forever()

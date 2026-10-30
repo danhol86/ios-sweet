@@ -31,7 +31,10 @@ $required=@('Install-iOS-Sweet.cmd','Start-iOS-Sweet-Docker.cmd','docker/compose
   'tools/AutoPrepare-IosSweet.py','tools/Patch-IosSweet-MGCompat.py',
   'tools/Patch-IosSweet-QemuKernel.py',
   'tools/extract-im4p-adt.py','tools/Ensure-IosSweet-Docker.ps1',
-  'tools/Start-IosSweet-Docker.ps1','docs/GITHUB_INSTALL.md')
+  'tools/Start-IosSweet-Docker.ps1','docs/GITHUB_INSTALL.md',
+  'docs/NATIVE_WINDOWS.md','Start-iOS-Sweet-Windows.cmd',
+  'tools/Start-IosSweet-Windows.ps1',
+  'tools/iossweet-native-windows.py','tools/test-native-qmp.py')
 foreach($name in $required){if($name -notin $names){throw "Missing tracked package component $name"}}
 $bad=@($names | Where-Object {$_ -match '(?i)(^Users/|^research/ipsw-x/|(^|/)(local-state|local-guest|local-config|local-assets)/|\.((qcow2|raw|vhdx|im4p|adt|ipsw|dmg|simg|img|p8|p12|ipa|mobileprovision))$)'})
 if($bad.Count){throw ('Private media paths found in tracked Git tree: '+($bad -join ', '))}

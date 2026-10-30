@@ -163,8 +163,7 @@ def screen_result(screen, unknown):
 
 def qmp(sock_path, *cmds, pmemsave=None):
     """Run QEMU human-monitor commands over QMP (synchronous, unlike the echoing HMP socket)."""
-    s = socket.socket(socket.AF_UNIX)
-    s.connect(sock_path)
+    s = connect_qmp(sock_path)
     f = s.makefile('rw')
     f.readline()
 
@@ -191,6 +190,21 @@ def qmp(sock_path, *cmds, pmemsave=None):
     return out
 
 
+def connect_qmp(endpoint):
+    """Unix socket in Linux/Docker, loopback-only TCP for native Windows QEMU."""
+    address = str(endpoint)
+    if address.startswith('tcp://'):
+        from urllib.parse import urlsplit
+        uri = urlsplit(address)
+        if uri.hostname not in ('127.0.0.1', 'localhost', '::1') or not uri.port:
+            raise ValueError('QMP TCP must use loopback only')
+        return socket.create_connection((uri.hostname, uri.port), timeout=8)
+    sock = socket.socket(socket.AF_UNIX)
+    sock.settimeout(8)
+    sock.connect(address)
+    return sock
+
+
 def shutdown_qemu(proc, monitor):
     """Flush QCOW2 metadata on a normal QEMU exit; SIGKILL is last resort.
 
@@ -201,9 +215,7 @@ def shutdown_qemu(proc, monitor):
     if proc.poll() is not None:
         return
     try:
-        with socket.socket(socket.AF_UNIX) as s:
-            s.settimeout(3)
-            s.connect(monitor)
+        with connect_qmp(monitor) as s:
             f = s.makefile('rw')
             f.readline()
             f.write(json.dumps({'execute': 'qmp_capabilities'}) + '\n')
