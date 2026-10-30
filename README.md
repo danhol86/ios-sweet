@@ -56,7 +56,8 @@ left running.
 
 **Updated 30 October 2026:** A later live Windows run (with the optional
 software sRGB display mode) successfully rendered Google's HTTPS page and
-consent dialog in Safari. A local HTTP control also loaded HTML, CSS,
+consent dialog and the independently hosted `https://example.com` page in
+Safari, both with secure HTTPS lock icons. A local HTTP control loaded HTML, CSS,
 text, an image and a JavaScript-requested resource. This establishes that
 browser networking and rendering *can* work, though the unaccelerated
 ARM64 guest is still extremely slow. Repeatability across websites and

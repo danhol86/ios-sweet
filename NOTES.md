@@ -8,6 +8,10 @@
   Safari rendered Google's real HTTPS page, its consent dialog and padlock;
   browser history forward navigation re-rendered it. Evidence screenshot is
   private `windows-runtime/network-probe/google-forward.png`.
+- **Second independent HTTPS verified 23:25 UTC:** Safari loaded and rendered
+  `https://example.com`, including multilingual page content and the secure
+  padlock (`windows-runtime/network-probe/example-com-rendered.png`). A TCP
+  flow transferred 1,118 outgoing and 5,844 incoming payload bytes.
 - **Verified local WebKit HTTP:** Safari loaded `http://10.0.2.2:8765/`;
   local HTTP server recorded HTML 200/304 and displayed green CSS background
   and text after noticeable delay. A richer fixture fetched an image and JS
@@ -23,13 +27,17 @@
   instance and prevent duplicate QEMUs. Current `Start-iOS-Sweet-Windows.cmd`
   defaults to the verified sRGB display mode. This configuration was not
   A/B-tested against P3; causation is not established.
+  Created Windows desktop shortcut `iOS Sweet (Windows).lnk` and removed the
+  obsolete **project-only** Docker shortcut. The one-instance launcher
+  smoke test re-opened existing QEMU PID 71564 unchanged. Longer (~850 ms)
+  emulated taps proved more reliable than 300 ms while WebKit was busy.
 - Found old kernel network tracing was saturated by `mDNSResponder` events.
   Independent browser/DNS/service budgets committed as `ebc43ae`, pushed to
   fork branch `windows-qemu-virtio`. Triggered GitHub Actions XNU run
   `41143670554` for next diagnostic; **do not swap the current working
   kernel/disk automatically**. `tools/diagnose-webkit-flows.py` reports
   sanitized TCP flow summaries. No Docker or iOS Apple system image touched.
-- Next: verify reliable Google reload and a second independent HTTPS site;
+- Next: verify reliable Google reload and sustained cross-site browsing;
   check real cold-boot repeatability only when a clean guest stop/restart is
   safe. Investigate severe iOS TCG latency and stale framebuffer repaints.
   Preserve prior tests, protected source images, local captures and backups.

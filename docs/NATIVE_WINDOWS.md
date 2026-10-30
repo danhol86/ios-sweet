@@ -79,6 +79,8 @@ and drag gestures over the same VirtIO tablet as the Docker version.
 - **Later live retest (30 October 2026, 23:21 UTC):** The single Windows QEMU
   guest loaded Google's HTTPS page in Safari, showed its cookie-consent
   dialog and HTTPS padlock, and re-rendered the page from Safari history.
+  A second independent HTTPS check (`https://example.com`) also rendered
+  its complete text and secure-padlock UI at 23:25 UTC.
   A controlled HTTP page at `10.0.2.2:8765` also fetched HTML, an image,
   and a JavaScript-requested canary. CPU-only ARM64 emulation remains very
   slow and some repaints appear substantially delayed. This was tested with
@@ -88,6 +90,9 @@ and drag gestures over the same VirtIO tablet as the Docker version.
   configuration and reuses an already-running guest of that mode, rather
   than launching a second VM. This display mode applies only to synthetic
   Windows QEMU; physical-device firmware is never changed by the launcher.
+  The new desktop icon is named **iOS Sweet (Windows)**; the obsolete Docker
+  shortcut for this project was removed. On busy web pages a longer touch
+  (~0.8 seconds) can be needed due to the slow software-emulated input polling.
 - The redundant QEMU installation on C: was removed after the D:-resident
   QEMU executables were checksum-verified and tested. All three dedicated
   iOS Sweet Docker image tags, the guest container and project network,

@@ -9,6 +9,15 @@ Google consent dialog, page text, and Safari's HTTPS padlock. Navigating
 away and **forward** again re-rendered the same page and padlock. This
 supersedes the earlier reports below that Google never loads.
 
+**Independent HTTPS cross-check at 23:25 UTC also passed:** Safari navigated
+to `https://example.com` via its address bar and rendered the Example Domain
+page, including its multilingual body text and the HTTPS padlock. The
+corresponding sanitized TCP flow recorded 1,118 outgoing and 5,844 incoming
+payload bytes; see ignored local screenshot
+`windows-runtime/network-probe/example-com-rendered.png`. Both public sites
+working in the same session is stronger evidence than a successful TLS hello
+alone. Cold boot and sustained multi-site browsing still need validation.
+
 The private `windows-runtime/state/windows-qemu-20261030-180638/network.pcap`
 showed several Google connections: one closed after a 517-byte TLS ClientHello
 and approximately 2.8 KB server flight, but a subsequent connection exchanged
@@ -32,6 +41,11 @@ default P3 mode for browsing, so it is *not established as the root-cause fix*.
 Web browsing is now **demonstrated**, but startup/painting latency and
 reliability across other sites remain open issues. No second guest was
 started, and the private Apple disk and unrelated Docker services were kept.
+The Windows desktop shortcut is now **iOS Sweet (Windows)**, replacing the
+obsolete project-specific Docker shortcut. Its launcher was tested to reuse
+the existing sRGB guest with unchanged QEMU PID rather than start a duplicate.
+During a busy page, a ~850 ms emulated touch hold registered where shorter
+~300 ms holds had been intermittently missed.
 
 The earlier kernel's single `sweet_net_trace_count >= 600` budget was
 exhausted by `mDNSResponder` socket calls. Commit `ebc43ae` reserves a
