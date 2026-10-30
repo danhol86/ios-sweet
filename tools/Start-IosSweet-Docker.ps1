@@ -31,7 +31,7 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { throw 'Install/st
 if ($LASTEXITCODE -ne 0) { throw 'Docker daemon is not responding.' }
 $project='ios-sweet-qemu'
 if ($Stop) {
-    & docker compose -p $project -f $compose down
+    & docker compose --env-file (Join-Path $repo 'docker\.env.example') -p $project -f $compose down
     if ($LASTEXITCODE -ne 0) { throw 'Could not stop iOS Sweet Docker container.' }
     return
 }
