@@ -16,10 +16,10 @@
 +    if (!sweet_qemu_network_trace || sweet_net_trace_count >= 100) return;
 +    char name[32];
 +    proc_name(proc_pid(p), name, sizeof(name));
++    /* WebKit process names may be truncated by proc_name. Keep only browser
++       and WebKit tracing so mDNSResponder startup cannot exhaust the log. */
 +    if (strncmp(name, "com.apple.WebKit", 16) != 0 &&
-+        strcmp(name, "MobileSafari") != 0 &&
-+        strcmp(name, "mDNSResponder") != 0 &&
-+        strcmp(name, "nsurlsessiond") != 0) return;
++        strcmp(name, "MobileSafari") != 0) return;
 +    sweet_net_trace_count++;
 +    printf("SWEET NET TRACE: %s %s family=%d error=%d\n",
 +        name, action, family, error);
