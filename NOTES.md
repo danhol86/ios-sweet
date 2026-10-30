@@ -13,6 +13,56 @@
 
 ## Network diagnostic correction (2026-10-30)
 
+### Live Docker validation of combined socket/NECP kernel
+
+- GitHub Actions XNU workflow **41031874190**, commit `4252296`,
+  **passed**. Kernel SHA-256:
+  `d97b60c0a29a6170663eb4bc14027f056180013fde9b4d699b0a9b06e0dcf59a`.
+  Saved locally under `xnu/out-qemu-0098/`.
+- Booted that kernel with an independent Docker guest/container on host
+  port 8111, and used the touchscreen helper to enter **exactly**
+  `example.com` and press Go in Safari. Screenshot still showed a
+  **blank white page**. Network is **NOT fixed**.
+- QEMU Ethernet `en0` attached at `10.0.2.15`; ARP and the
+  *kernel-originated* DNS probe to `10.0.2.3` succeeded. Capture contained
+  ARP, IPv4 UDP (kernel DNS probe + multicast), and no TCP SYN or
+  browser-originated unicast DNS lookup. Do **not** interpret the built-in
+  kernel DNS probe as proof mDNSResponder has a usable resolver.
+- NECP copied results for both MobileSafari and WebKit:
+  `flags=0x100024 policy=0 ifindex=4 reason=0`; 0096 diagnostic
+  string was verified embedded in the kernel, but no browser socket
+  trace lines appeared after navigation. No conclusion yet about why
+  WebKit does not attempt a socket.
+- Mounted the isolated HFSX **base image read-only** with libguestfs;
+  `SystemConfiguration/preferences.plist` already contains one
+  manually configured Ethernet service with `en0`, `10.0.2.15/24`,
+  router `10.0.2.2` and DNS `10.0.2.3`.
+  `SystemConfiguration/NetworkInterfaces.plist` contains *only*
+  `__VERSION__=20191120` (no registered interfaces). Used QMP pause
+  and a copy of the **diagnostic-only QCOW2 overlay** to compare the
+  network plists after boot; both files remained byte-for-byte unchanged.
+- This points to an iOS interface-discovery / SystemConfiguration
+  dynamic-store / DNS-service-registration gap rather than a Windows,
+  Docker or QEMU NAT outbound-connectivity failure, but is **not
+  conclusive**. Earlier independent experiments with a manually
+  populated NetworkInterfaces plist also failed to load Safari, so
+  do not claim the plist alone is the fix. Next investigate a real
+  IONetworkingFamily controller/interface registration and the actual
+  resolver state seen by mDNSResponder/WebKit, rather than hardcoding
+  successful NECP results.
+- All experimental screenshots, HFSX plist extracts, raw QMP console,
+  PCAP and overlay remain in the **ignored local directory**
+  `D:\Projects\ios-sweet\docker\local-state\netdiag-0098`.
+  Do not commit guest media or runtime data. The test container was
+  stopped and removed; the original Docker iOS viewer at
+  `http://127.0.0.1:8108/` still returned HTTP 200 and all 32
+  existing containers remained running.
+- Old Ubuntu WSL distribution was already unregistered; removed only
+  its empty `D:\WSL\Ubuntu-24.04` placeholder and empty `D:\WSL`
+  parent. `docker-desktop` WSL and its active VHDX files remain
+  untouched. Preserve the `D:\WSLRecovery` archive and related hashes;
+  this is a recovery source for prior development media.
+
 - Docker-only iOS networking is **not working yet**. The isolated kernel 0097
   run has QEMU Ethernet, DNS replies, and NECP browser path reports
   `flags=0x100024 policy=0 ifindex=4 reason=0`, but Safari still shows a blank
