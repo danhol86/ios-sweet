@@ -12,6 +12,7 @@ import ctypes
 import datetime
 import importlib.util
 import json
+import msvcrt
 import os
 from pathlib import Path
 import shutil
@@ -243,6 +244,23 @@ def start(args):
     check_ports(args.qmp_port, args.port)
     state = args.state.resolve()
     state.mkdir(parents=True, exist_ok=True)
+    # Atomic Windows file lock closes the small TOCTOU window between
+    # process enumeration and launch. The handle remains open until QEMU
+    # and the local viewer both exit. It never deletes user state.
+    with (state / 'native-instance.lock').open('a+b') as lock:
+        lock.seek(0)
+        try:
+            msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError as error:
+            raise RuntimeError('Native iOS Sweet is already starting/running') from error
+        try:
+            run_locked(args, state, qemu_bin, qemu_img)
+        finally:
+            lock.seek(0)
+            msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+def run_locked(args, state, qemu_bin, qemu_img):
     run, disk, ram_gib, phys = prepare(args, state, qemu_bin, qemu_img)
     endpoint = f'tcp://127.0.0.1:{args.qmp_port}'
     argv = [str(qemu_bin), '-M', 'virt,gic-version=3',
