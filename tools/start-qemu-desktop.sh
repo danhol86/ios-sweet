@@ -13,6 +13,7 @@ seconds="$(printenv SWEET_QEMU_SECONDS || true)"
 cpus="$(printenv SWEET_QEMU_CPUS || true)"
 debug_console="$(printenv SWEET_QEMU_DEBUG_CONSOLE || true)"
 network="$(printenv SWEET_QEMU_NETWORK || true)"
+qemu_log="$(printenv SWEET_QEMU_LOG_FLAGS || true)"
 necp_trace="$(printenv SWEET_QEMU_NECP_TRACE || true)"
 adt_override="$(printenv SWEET_QEMU_ADT || true)"
 sample="$(printenv SWEET_QEMU_SAMPLE || true)"
@@ -28,6 +29,7 @@ base="$(printenv SWEET_QEMU_OUTPUT_BASE || true)"
 [[ -n "$cpus" ]] || cpus="1"
 [[ -n "$debug_console" ]] || debug_console="0"
 [[ -n "$network" ]] || network="0"
+[[ -n "$qemu_log" ]] || qemu_log="guest_errors,unimp"
 [[ -n "$necp_trace" ]] || necp_trace="0"
 # XNU proc_name uses MAXCOMLEN=16: MobileGestaltHelper is
 # "MobileGestaltHel" in the process sampler. Use its truncated name.
@@ -119,4 +121,4 @@ if [[ "$network" == "1" ]]; then
 fi
 python3 "$repo/tools/qemu-sweet.py" "$run/payload.bin" "$run" \
     --kernel "$kernel" "${disk_args[@]}" --tablet "${net_args[@]}" --cpus "$cpus" \
-    --secs "$seconds" --live-serial
+    --secs "$seconds" --qemu-log "$qemu_log" --live-serial
