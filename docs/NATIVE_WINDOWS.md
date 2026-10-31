@@ -1,5 +1,20 @@
 # Native Windows QEMU backend (experimental)
 
+The optional quiet-AKS kernel patch (`0098`) has a successful macOS build in
+GitHub Actions run `41191163506`; its verified kernel and an isolated cloned
+QCOW2 are staged under ignored `windows-runtime/`. Boot-payload preparation
+passed without starting another emulator. The **known-good** kernel remains
+installed until an isolated live candidate boot and browser check pass.
+
+The local desktop launcher was independently retested end-to-end on the
+two-core preference on 31 October 2026: it opened one QEMU instance,
+served the new viewer's `/status.json`, booted iOS to the lock screen,
+unlocked using the batched Home gesture and launched Safari with a 240 ms
+tap. Safari rendered Google's actual HTTPS page and cookie dialog, with
+a secure padlock. This verifies the launcher and previous kernel, **not**
+the new optional quiet-AKS candidate. The test copy and previous state have
+separate ignored backups; no Apple system files are distributed.
+
 ## Tested local two-core relaunch and rollback (31 October 2026)
 
 On the tested D:-drive Windows machine, `windows-runtime/state/native-cpus.txt`

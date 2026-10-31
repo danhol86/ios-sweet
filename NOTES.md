@@ -1,5 +1,42 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## Follow-up 31 October 2026, 10:14 UTC — verified launcher / new kernel candidate
+
+- The actual `Start-IosSweet-Windows.ps1 -SrgbDisplay -NoBrowser` desktop
+  launcher successfully restarted the locally preferred two-core guest,
+  opening **one** native QEMU PID 44780, run
+  `windows-runtime/state/windows-qemu-20261031-101223`. Live
+  `/status.json` returned `{mode:"Native Windows QEMU",cores:2,diagnostics:false}`.
+  Live viewer source confirms 240 ms click, cached screen and boot-unique
+  ETag. Private two-core overlay was backed up beforehand to ignored
+  `windows-runtime/backups/cpu2-before-final-launch-20261031.qcow2`, SHA-256
+  `7b1d115609ce37c7f458e34669de69e23094cefffa664cd048e6dc11c9fe100a`.
+  Original single-core iOS disk remains intact. **Final launcher reboot now
+  verified end-to-end:** QEMU reached the lock screen, `POST /gesture`
+  unlocked to SpringBoard (HTTP 204), a 240 ms touch launched Safari,
+  and `google.com` rendered its real HTTPS page, secure padlock and cookie
+  consent dialog. Private evidence:
+  `windows-runtime/network-probe/launcher-final-google-status.png`.
+- Github XNU workflow run `41191163506` **succeeded** after applying new
+  patch 0098. Downloaded independently to ignored
+  `windows-runtime/experiments/xnu-run-41191163506/kernel.development.sweet`,
+  verified SHA-256
+  `7dc86497ccd0c224ec1e6b8430be6f2dd7a46ac13ef795ed4047d0adf7d3bde8`
+  against artifact `SHA256SUMS`. Separate candidate QCOW2 cloned from the
+  known-offline two-core backup at
+  `windows-runtime/state/ios-cpu2-aks-quiet-candidate.qcow2`; same backing raw
+  disk, same verified clone checksum. `--prepare-only` accepted the new kernel
+  with explicit checksum, built loader/ADT/boot payload with **two CPUs** and
+  changed no running VM. **Live candidate boot not yet verified** at this step;
+  do not swap the current stable GUI kernel without separate runtime tests.
+- Removed only two disposable `--prepare-only` run folders generated in this
+  session (`windows-qemu-20261031-100401` and `...-101404`), reclaiming
+  105.3 MiB. Kept the active run, all backups, candidate kernel and cloned
+  iOS disk, and unrelated Docker workloads untouched.
+- Final regression suite now has nine passing tests, including stop guards,
+  missing prerequisites and stale-frame prevention. All work committed on
+  `windows-qemu-virtio` through `c077d6f` so far.
+
 ## Two-core continuation after quiet reboot (31 October 2026, 10:00 UTC)
 
 - QMP shutdown safety improvement: `verify_own_qemu_pid` checks the saved PID
