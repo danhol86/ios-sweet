@@ -27,10 +27,12 @@ on your machine. See the
 **[GitHub installation guide](docs/GITHUB_INSTALL.md)** for preparation steps
 and the [Docker-only technical notes](docs/ONE_CLICK_DEPLOY.md).
 
-The iOS GUI and Safari launch. Guest DNS/TCP connectivity now works in
-testing, but **Safari web pages can still render blank**; this is an
-experimental development preview, not a complete iOS simulator. The
-Windows/Docker installer never flashes the phone.
+The iOS GUI and Safari launch. Guest DNS/TCP connectivity is verified,
+and the **native Windows QEMU** setup has rendered real external HTTPS
+pages in Safari. Some pages or fresh sessions may still render blank or
+take an unusually long time to repaint. This remains an experimental
+development preview, not a complete or fast iOS simulator. The installer
+never flashes the phone.
 
 ### Direct Windows QEMU runtime (development branch)
 
@@ -45,8 +47,9 @@ On x86 Windows, the verified QEMU build offers **TCG software emulation,
 not hardware-accelerated ARM64**. A substantial speedup is not guaranteed,
 and the 7 GiB iOS guest requires enough free host memory. On 30 October
 2026 the native Windows QEMU guest reached the lock screen, home screen
-and Safari using its preserved private save. Safari's Google page still
-rendered blank; native QEMU does not fix that automatically.
+and Safari using its preserved private save. Its initial Safari attempt
+rendered blank; subsequent tests on 30-31 October successfully loaded Google
+over HTTPS, including its real consent UI. Rendering remains very slow.
 
 On the tested PC, QEMU, the private 16 GiB iOS disk, kernel, writable
 overlay and logs live under `D:\Projects\ios-sweet\windows-runtime`.

@@ -2,6 +2,17 @@
 
 ## Viewer efficiency and hot reload (31 October 2026)
 
+Native launches also now hold a Windows-enforced one-byte file lock
+(`windows-runtime/state/native-qemu-instance.lock`) throughout the QEMU
+controller's lifetime. A second launch attempting to acquire the same lock
+fails immediately, even in the short window before the first QEMU process
+appears in the process list. Windows releases the lock automatically if
+the controller dies; the existing QEMU process check still protects against
+an orphaned emulator. The `-Stop` and `--prepare-only` paths are not blocked
+by this lock. A cross-process regression test verifies both rejection while
+held and successful reacquisition after release. This is independent of the
+ordinary double-click launcher check and protects against rapid double-clicks.
+
 The QEMU framebuffer is 1080x2400 BGRA (about **9.9 MiB of raw pixel data**).
 Before this change, every visible viewer tab requested a full QMP `pmemsave`
 approximately every 0.8 seconds even when nothing changed. That generates

@@ -205,6 +205,33 @@ class HandlerTests(unittest.TestCase):
 
 
 class NativeConfigTests(unittest.TestCase):
+    def test_atomic_native_lock_blocks_concurrent_launcher(self):
+        if sys.platform != 'win32':
+            self.skipTest('Native Windows file locks require Windows')
+        spec = importlib.util.spec_from_file_location(
+            'iossweet_singleton_test', TOOL / 'iossweet-native-windows.py')
+        native = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(native)
+        subprocess_code = '''
+import importlib.util, sys
+s = importlib.util.spec_from_file_location("candidate", sys.argv[1])
+m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+try:
+    with m.native_instance_lock(sys.argv[2]): pass
+except RuntimeError as exc:
+    print(str(exc)); sys.exit(23)
+'''
+        with tempfile.TemporaryDirectory() as folder:
+            args = [sys.executable, '-c', subprocess_code,
+                    str(TOOL / 'iossweet-native-windows.py'), folder]
+            with native.native_instance_lock(folder):
+                attempt = subprocess.run(args, capture_output=True, text=True, timeout=12)
+                self.assertEqual(attempt.returncode, 23)
+                self.assertIn('already active', attempt.stdout)
+            second = subprocess.run(args, capture_output=True, text=True, timeout=12)
+            self.assertEqual(second.returncode, 0, second.stderr)
+            self.assertTrue((Path(folder) / 'native-qemu-instance.lock').exists())
+
     def test_stop_refuses_non_qemu_process_identity(self):
         if sys.platform != 'win32':
             self.skipTest('Native QEMU PID lookup requires Windows')

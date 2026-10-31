@@ -5,9 +5,10 @@ No Docker/WSL runtime is used. Apple firmware is supplied privately by
 the user; the prepared iOS root disk is always mounted read-only under a
 separate native QCOW2 overlay. QMP binds only to Windows loopback.
 The simulator remains experimental: ARM64 on x86 uses QEMU TCG software
-emulation, and Safari's iOS-side network readiness is not yet proven.
+emulation. Safari HTTPS browsing has been demonstrated but is still slow.
 """
 import argparse
+from contextlib import contextmanager
 import ctypes
 import datetime
 import importlib.util
@@ -47,6 +48,38 @@ QEMU_DIR = Path(os.environ.get(
 
 def log(message):
     print(message, flush=True)
+
+
+@contextmanager
+def native_instance_lock(state):
+    """Fail fast when a second Windows launcher races the current one.
+
+    The byte-range lock is held for the controller's entire QEMU lifetime.
+    Windows releases it automatically if the controller crashes; the
+    existing QEMU process check then catches an orphaned emulator. A
+    persistent 1-byte sentinel is safe and must not be deleted on exit.
+    This lock is intentionally NOT used by --stop or --prepare-only.
+    """
+    if os.name != 'nt':
+        raise RuntimeError('Native QEMU instance lock is Windows-only')
+    state=Path(state).resolve()
+    state.mkdir(parents=True, exist_ok=True)
+    path=state/'native-qemu-instance.lock'
+    with path.open('a+b') as handle:
+        if path.stat().st_size == 0:
+            handle.write(b'\x00')
+            handle.flush()
+        handle.seek(0)
+        try:
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError as ex:
+            raise RuntimeError('Another iOS Sweet native Windows launch is already active; '
+                               'reopen the existing viewer instead') from ex
+        try:
+            yield
+        finally:
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def free_ram_gib():
@@ -476,7 +509,8 @@ def main():
         print('NATIVE_WINDOWS_REQUIRED_RAM_GIB='+str(ram_gib))
         print('NATIVE_WINDOWS_GUEST_NOT_STARTED')
         return
-    start(args)
+    with native_instance_lock(args.state):
+        start(args)
 
 
 if __name__ == '__main__':

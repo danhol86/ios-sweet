@@ -2,6 +2,15 @@
 
 ## Viewer host-I/O optimization, 31 October 2026, ~13:03 UTC
 
+- Follow-up: added an OS-enforced byte-range singleton lock in the Windows
+  native controller (`native_instance_lock`). Held from just before QEMU
+  startup until controller exit; `-Stop` can still signal an active guest.
+  Test spawned a competing Python process: it failed while the lock was
+  held, and succeeded immediately after release. Eleven Python tests plus
+  JavaScript adaptive refresh tests now pass. Source updated on GitHub
+  after verification; the running guest requires one controlled restart for
+  the singleton lock to become active in its controller.
+
 - Measured runtime state on Windows: one QEMU PID 29212, new verified
   two-core quiet-AKS kernel, and viewer `/status.json` still responsive.
   Host free RAM fluctuated below 1 GiB while unrelated WSL was resident;
