@@ -1,5 +1,48 @@
 # Native Windows QEMU backend (experimental)
 
+## `driverkitd` termination diagnosis — 31 October 2026
+
+The recurring guest log entry `CRASH driverkitd[66] sig 9 ... reason ns 1
+code 0x7` has a **specific XNU meaning**, not an unknown instruction fault:
+namespace `1` is `OS_REASON_JETSAM`, and code `7` is
+`JETSAM_REASON_MEMORY_PERPROCESSLIMIT`. That denotes a daemon exceeding its
+**guest-side per-process memory limit**, rather than proving that the 32 GiB
+Windows host is out of RAM. `SIGKILL` is consistent with this termination.
+Apple's XNU sources document the definitions in
+[`bsd/sys/reason.h`](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/reason.h)
+and [`bsd/sys/kern_memorystatus.h`](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/kern_memorystatus.h).
+
+Five independent archived Windows boots (original and quiet-AKS kernels)
+show the **same eight image-relative `driverkitd` stack frames** after
+normalising ASLR. Those logs also show SpringBoard/Safari boot succeeding.
+This evidence identifies the immediate termination category but does **not**
+explain why `driverkitd` reaches its memory limit. Do not disable jetsam,
+increase arbitrary limits, or patch the kernel merely to hide the event.
+The next diagnostic step is to inspect the private launchd job's
+`JetsamProperties` and its memory footprint at termination, then test a
+targeted fix on a separate, backed-up guest image. It is also important to
+distinguish the **guest jetsam limit** from the host's separate 6 GiB
+free-RAM startup guard.
+
+For read-only, repeatable cross-boot analysis, run one saved console per
+QEMU session through:
+
+```powershell
+python tools/analyze-qemu-crashes.py windows-runtime/network-probe/metrics-boot-console.log windows-runtime/network-probe/quiet-aks-console-progress.log
+```
+
+The tool groups ASLR-normalized process signatures, classifies known jetsam
+codes, counts separate input logs, and emits JSON without relocated address
+values or guest user data. One log **per actual boot** avoids overstating the
+number of occurrences when multiple snapshots capture the same event.
+Four synthetic Python unit tests validate the analyser without private Apple
+images or running QEMU. A successful tool run does not imply guest health.
+The existing parallel-frame viewer test now extends its **test-only** cache
+reuse window to avoid false failures when a busy Windows host schedules eight
+HTTP requests more than 280 ms apart. Production still uses the original
+280 ms minimum frame-resample interval. The combined offline suite has 17
+passing Python tests and the separate browser-side JavaScript suites.
+
 ## Viewer efficiency and hot reload (31 October 2026)
 
 ### Smooth one-connection navigation gestures

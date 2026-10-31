@@ -122,6 +122,9 @@ class ViewerHandler(BaseHTTPRequestHandler):
     frame_digest = None
     frame_sequence = 0
     frame_sampled_at = 0.0
+    # Keep this short in production; tests can lengthen it to assert
+    # concurrent snapshot sharing without depending on host scheduling.
+    frame_reuse_seconds = .28
     frame_session = None
     frame_samples = 0
     frame_changes = 0
@@ -194,7 +197,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
                     raise FileNotFoundError(mon)
                 with self.frame_lock:
                     now=time.monotonic()
-                    if self.frame_png is None or now-self.frame_sampled_at >= .28:
+                    if self.frame_png is None or now-self.frame_sampled_at >= self.frame_reuse_seconds:
                         try:
                             started=time.perf_counter()
                             qemu.qmp(str(mon), pmemsave=(qemu.FB_BASE, qemu.FB_STRIDE * qemu.FB_H, str(rawfile)))

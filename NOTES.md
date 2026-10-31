@@ -1,5 +1,36 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## 31 October 2026 — `driverkitd` jetsam reason identified
+
+- Analyzed archived QEMU in-memory console logs from five distinct
+  two-core Windows boots. Every boot reported `driverkitd` PID 66 killed
+  by signal 9 with `reason ns 1 code 0x7`; normalizing the image-relative
+  backtrace for ASLR yielded the exact same eight application frame offsets:
+  `0x9e6b4`, `0xe937c`, `0xea81c`, `0x2831c`, `0x7900c`, `0x9097c`,
+  `0xa6cf8`, `0xa24a8`. This is a **repeated termination path**.
+- XNU's `OS_REASON_JETSAM=1` and `JETSAM_REASON_MEMORY_PERPROCESSLIMIT=7`
+  explain the immediate exit reason: an **iOS guest process memory-limit
+  kill**, not evidence of a corrupt instruction or a Windows host OOM.
+  Sources: https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/reason.h
+  and https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/kern_memorystatus.h
+  Guest Safari and SpringBoard were independently observed working after
+  these events. Root cause of the excessive daemon footprint / limit
+  configuration is **not established**.
+- Created `tools/analyze-qemu-crashes.py` and
+  `tests/test_qemu_crash_analysis.py`, read-only ASLR-normalized crash
+  signature comparison with jetsam classification and synthetic tests.
+  Next: inspect launchd's `JetsamProperties` for the daemon and obtain
+  guest per-process memory usage immediately before its kill. Do not
+  globally disable jetsam or blindly increase service limits.
+- The expanded 17-test regression run also exposed an unrelated timing
+  assumption in the viewer's parallel snapshot test: eight concurrent
+  requests may straddle the 280 ms production reuse interval under load.
+  Added a test-only adjustable reuse interval, and both repeated suite runs
+  passed. Production's 280 ms interval is unchanged; no live guest restarted.
+- Live QEMU remains **stopped** pending at least 6 GiB Windows free RAM.
+  Docker Desktop's 35 running containers are preserved. Swipe tests
+  remain offline-passing; live swipe acceptance is still outstanding.
+
 ## 31 October 2026 — smoother navigation gestures
 
 - Host metrics showed ~26 ms QMP framebuffer read and ~24 ms PNG encoding;

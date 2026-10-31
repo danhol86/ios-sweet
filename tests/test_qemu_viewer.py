@@ -136,8 +136,13 @@ class HandlerTests(unittest.TestCase):
         self.assertFalse((Path(self.temp.name) / 'viewer-frame.raw').exists())
 
     def test_parallel_clients_share_one_snapshot(self):
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            frames = list(pool.map(lambda _: get(self.url+'/frame.png'), range(8)))
+        old_ttl = viewer.ViewerHandler.frame_reuse_seconds
+        try:
+            viewer.ViewerHandler.frame_reuse_seconds = 10  # test only; stable on a busy host
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                frames = list(pool.map(lambda _: get(self.url+'/frame.png'), range(8)))
+        finally:
+            viewer.ViewerHandler.frame_reuse_seconds = old_ttl
         self.assertEqual({status for status, _, _ in frames}, {200})
         self.assertEqual(len({headers['ETag'] for _, headers, _ in frames}), 1)
         self.assertEqual(self.snapshots, 1)
