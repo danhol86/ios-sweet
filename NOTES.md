@@ -18,7 +18,14 @@
   Verified `native-qemu-instance.lock` is held by running controller: a live
   second Python process failed to acquire it, while normal launcher reopen
   reused the original guest PID. No unrelated WSL or Docker service stopped.
-  Continue with post-reboot SpringBoard and Safari HTTPS checks.
+  **Final post-reboot checks passed:** by 13:10 UTC the guest rendered the
+  real lock screen and `POST /gesture` returned HTTP 204 to show SpringBoard.
+  A 240 ms tap launched Safari; its Google HTTPS page initially remained
+  blank while WebKit started, then fully rendered the secure padlock and
+  Google consent dialog. Screenshot (private ignored local evidence):
+  `windows-runtime/network-probe/atomic-safari-delayed.png`. Live console
+  showed WebKit Networking, WebContent and GPU processes, no WebKit crash and
+  no kernel panic. Leave the one running guest available for user testing.
 
 - Measured runtime state on Windows: one QEMU PID 29212, new verified
   two-core quiet-AKS kernel, and viewer `/status.json` still responsive.

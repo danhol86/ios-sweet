@@ -12,6 +12,11 @@ an orphaned emulator. The `-Stop` and `--prepare-only` paths are not blocked
 by this lock. A cross-process regression test verifies both rejection while
 held and successful reacquisition after release. This is independent of the
 ordinary double-click launcher check and protects against rapid double-clicks.
+The post-restart live test also completed: the locked single-instance
+controller booted to the lock screen, unlocked, launched Safari and rendered
+Google's real HTTPS consent page (after a noticeable software-rendering
+delay). This verifies GUI and Safari functionality in the same session as
+the new lock and adaptive viewer, not a claim of fast page rendering.
 
 The QEMU framebuffer is 1080x2400 BGRA (about **9.9 MiB of raw pixel data**).
 Before this change, every visible viewer tab requested a full QMP `pmemsave`
