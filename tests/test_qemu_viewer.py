@@ -142,6 +142,30 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual(len({headers['ETag'] for _, headers, _ in frames}), 1)
         self.assertEqual(self.snapshots, 1)
 
+    def test_snapshot_timing_metrics_do_not_expose_guest_data(self):
+        status, headers, payload = get(self.url+'/metrics.json')
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['Content-Type'], 'application/json; charset=utf-8')
+        self.assertEqual(json.loads(payload)['frame_samples'], 0)
+        self.assertNotIn('ios.qcow2', payload.decode())
+
+        get(self.url+'/frame.png')
+        with viewer.ViewerHandler.frame_lock:
+            viewer.ViewerHandler.frame_sampled_at = 0  # force a fresh QMP sample
+        get(self.url+'/frame.png')  # unchanged screenshot is not PNG-encoded
+        status, _, body = get(self.url+'/metrics.json')
+        self.assertEqual(status, 200)
+        stats = json.loads(body)
+        self.assertEqual(stats['frame_samples'], 2)
+        self.assertEqual(stats['changed_frames'], 1)
+        self.assertEqual(stats['unchanged_frames'], 1)
+        self.assertEqual(stats['snapshot_errors'], 0)
+        self.assertGreater(stats['mean_snapshot_ms'], 0)
+        self.assertGreater(stats['mean_png_encode_ms'], 0)
+        self.assertGreater(stats['framebuffer_mib'], 9)
+        self.assertNotIn('raw', stats)
+        self.assertFalse((Path(self.temp.name) / 'viewer-frame.raw').exists())
+
     def test_etag_changes_across_boot_and_runtime_status_is_private(self):
         viewer.ViewerHandler.runtime_info = {
             'mode': 'Native Windows QEMU', 'cores': 2, 'diagnostics': False,

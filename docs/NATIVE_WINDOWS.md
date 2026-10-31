@@ -2,6 +2,29 @@
 
 ## Viewer efficiency and hot reload (31 October 2026)
 
+### Pointer recovery and host capture metrics
+
+The HTML viewer queues all touchscreen events in order. It now guarantees
+an **up/release event** when the pointer is cancelled, another window gains
+focus, the page closes, or the tab is hidden. The down/up delivery is
+serialized through the existing QMP input queue, and release requests use
+the browser's `keepalive` option to make page-close delivery more resilient.
+Only the active pointer ID is allowed to control a drag; lost pointer capture
+cannot generate duplicate releases. This fixes the iPhone appearing to
+remain pressed after an interrupted mouse or touch gesture. The independent
+`node tests/check_viewer_pointer.js` mocks browser events and verifies four
+failure/recovery scenarios without QEMU or private Apple firmware.
+
+The controller also serves **loopback-only `/metrics.json`** with the number
+of QMP framebuffer reads, changed and unchanged images, capture failures,
+and most recent/average capture and PNG compression times. Nothing from
+iOS guest memory, URLs, user data, or local filenames is returned. Click
+**Viewer performance diagnostics** in the local browser to see these
+measurements (and refresh on demand). The measurements are about the
+Windows capture/encode pipeline, **not iOS frame rate** or emulation speed.
+This adds no periodic metrics sampling: values are updated incidentally
+when an actual screenshot is requested.
+
 Native launches also now hold a Windows-enforced one-byte file lock
 (`windows-runtime/state/native-qemu-instance.lock`) throughout the QEMU
 controller's lifetime. A second launch attempting to acquire the same lock

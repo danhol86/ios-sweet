@@ -1,5 +1,24 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## 31 October 2026 ~13:29 UTC — pointer recovery + capture metrics
+
+- Current native two-core quiet-AKS guest PID 21920 remained alive throughout
+  this development. Its viewer `tools/qemu-viewer.html` is hot-reloaded, so
+  the improved touch-release handling is visible without a QEMU restart.
+- New release handling covers `pointercancel`, `lostpointercapture`, browser
+  blur, `pagehide`, and tab hiding. Ignores pointer moves/releases from a
+  different pointer ID, prevents duplicate releases, and sends release
+  HTTP POSTs using `keepalive` for navigation/blur resilience. Four offline
+  simulated browser scenarios pass in `tests/check_viewer_pointer.js`.
+- Backend adds sanitized host-only QMP capture metrics at `/metrics.json`:
+  samples, changed/unchanged frames, failures, last/mean screenshot and PNG
+  compression milliseconds, and raw framebuffer size. No background metric
+  sampler. UI shows the data on demand in a collapsible performance panel.
+- Existing adaptive-poll JavaScript test passes; Python suite now has **12
+  passing tests**, including the new aggregate metrics/cache test. Node and
+  Python syntax checks pass. Backend metrics require one controlled QEMU
+  restart, after a verified snapshot, to take effect in the live controller.
+
 ## Viewer host-I/O optimization, 31 October 2026, ~13:03 UTC
 
 - Follow-up: added an OS-enforced byte-range singleton lock in the Windows

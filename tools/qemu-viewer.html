@@ -12,6 +12,9 @@ p{font-size:13px;color:#a5b3c7;line-height:1.5}
 button{font:600 14px system-ui,sans-serif;padding:10px 18px;margin:5px;background:#323b4b;color:#fff;border:1px solid #64748b;border-radius:10px;cursor:pointer}
 button:disabled{opacity:.45;cursor:default}
 small{display:block;margin-top:12px;color:#8995a8}
+details{margin:12px auto;max-width:480px;text-align:left;background:#1d2634;padding:12px;border-radius:10px}
+summary{cursor:pointer;font-size:13px;color:#cbd5e1}
+#perfStats{white-space:pre-wrap;word-break:break-word;font:12px ui-monospace,monospace;color:#afc2d8}
 </style></head><body><main>
 <h1>ios-sweet QEMU display</h1>
 <p>Live physical framebuffer snapshots from the ARM64 VM. INPUT_STATUS</p>
@@ -20,6 +23,10 @@ small{display:block;margin-top:12px;color:#8995a8}
 <div id="state">Connecting to QEMU...</div>
 <img id="frame" alt="QEMU iPhone framebuffer">
 <button type="button" id="swipehome">Swipe up / Home</button>
+<details id="perfDetails"><summary>Viewer performance diagnostics</summary>
+<p>Measures Windows host screenshot capture and encoding, not the iOS frame rate.</p>
+<button type="button" id="perfRefresh">Refresh measurements</button>
+<pre id="perfStats">Open to read the host timings.</pre></details>
 <p>Click an app normally or drag on the iPhone screen. Swipe from the bottom bar to return Home, or use the button.</p>
 <small>Local development viewer. Close this page to stop polling; the VM is managed separately.</small>
 </main><script>
@@ -27,6 +34,7 @@ var img=document.getElementById("frame"), state=document.getElementById("state")
 var busy=false, frameETag="", lastInteraction=Date.now(), lastChange=Date.now();
 var pollTimer=null, polling=false;
 var inputEnabled=INPUT_ENABLED, pointerActive=false, lastPointer=0, activeTap=null;
+var activePointerId=null, lastTouchPoint=null;
 // QEMU sends tablet events asynchronously. A desktop mouse click often lasts
 // less than one emulated poll; SpringBoard never sees a complete iOS tap.
 // Tested on the two-core guest: 240ms opens both Safari and a Google favorite.
@@ -35,6 +43,21 @@ var inputEnabled=INPUT_ENABLED, pointerActive=false, lastPointer=0, activeTap=nu
 var MIN_TAP_MS=240, touchQueue=Promise.resolve();
 var homeButton=document.getElementById("swipehome");
 homeButton.disabled=!inputEnabled;
+async function updatePerformance(){
+ var el=document.getElementById('perfStats');
+ try{
+   var response=await fetch('/metrics.json',{cache:'no-store'});
+   if(!response.ok)throw new Error('Metrics unavailable ('+response.status+')');
+   var m=await response.json();
+   el.textContent='Guest framebuffer: '+m.framebuffer_mib+' MiB\n'+
+     'Samples: '+m.frame_samples+' ('+m.changed_frames+' changed, '+m.unchanged_frames+' unchanged)\n'+
+     'QMP read: '+m.last_snapshot_ms+' ms last / '+m.mean_snapshot_ms+' ms average\n'+
+     'PNG encode: '+m.last_png_encode_ms+' ms last / '+m.mean_png_encode_ms+' ms changed average\n'+
+     'Capture errors: '+m.snapshot_errors;
+ }catch(e){el.textContent='Unable to read performance metrics: '+e.message;}
+}
+document.getElementById('perfDetails').addEventListener('toggle',function(){if(this.open)updatePerformance();});
+document.getElementById('perfRefresh').addEventListener('click',updatePerformance);
 fetch('/status.json',{cache:'no-store'}).then(function(r){return r.json()}).then(function(s){
  runtime.textContent=s.mode+' • '+s.cores+' CPU'+(s.cores===1?'':'s')+(s.diagnostics?' • diagnostic trace':'');
 }).catch(function(){runtime.textContent='QEMU runtime';});
@@ -100,7 +123,8 @@ async function sendRawTouch(x,y,down) {
  // endlessly postpone the next frame. Refresh promptly after releasing.
  if(!polling && (!down || pollTimer===null))schedulePoll(100);
  var r=await fetch("/touch",{method:"POST",headers:{"Content-Type":"application/json"},
-   body:JSON.stringify({x:x,y:y,down:down})});
+   // A queued release should still be delivered when a window loses focus.
+   keepalive:!down,body:JSON.stringify({x:x,y:y,down:down})});
  if(!r.ok)throw new Error("QEMU rejected touchscreen input ("+r.status+")");
 }
 function queueTouch(x,y,down,tap,minimumHold) {
@@ -119,30 +143,41 @@ function queueTouch(x,y,down,tap,minimumHold) {
 img.addEventListener("pointerdown",function(e){
  if(!inputEnabled || pointerActive)return;
  var p=coords(e);if(!p)return;
- e.preventDefault();pointerActive=true;lastPointer=0;
+ e.preventDefault();pointerActive=true;activePointerId=e.pointerId;
+ lastTouchPoint=p;lastPointer=0;
  lastInteraction=Date.now();
  activeTap={ackAt:0,startX:e.clientX,startY:e.clientY,moved:false};
  img.setPointerCapture(e.pointerId);
  queueTouch(p.x,p.y,true,activeTap,0);
 });
 img.addEventListener("pointermove",function(e){
- if(!pointerActive || !inputEnabled)return;
+ if(!pointerActive || !inputEnabled || e.pointerId!==activePointerId)return;
  var tap=activeTap;
  if(tap && (Math.abs(e.clientX-tap.startX)>8 || Math.abs(e.clientY-tap.startY)>8))tap.moved=true;
+ var p=coords(e);if(p)lastTouchPoint=p;
  if(Date.now()-lastPointer<45)return;
- var p=coords(e);if(!p)return;
+ if(!p)return;
  lastPointer=Date.now();queueTouch(p.x,p.y,true,tap,0);
 });
-function pointerUp(e){
- if(!pointerActive)return;
- pointerActive=false;
- var p=coords(e),tap=activeTap;activeTap=null;
+function finishPointer(e,cancelled){
+ if(!pointerActive || (e && e.pointerId!==activePointerId))return;
+ pointerActive=false;activePointerId=null;
+ var p=e?coords(e):lastTouchPoint,tap=activeTap;
+ activeTap=null;
+ if(p)lastTouchPoint=p;
+ p=p||lastTouchPoint;
+ lastTouchPoint=null;
  if(!p)return;
- // A swipe must remain a swipe; only brief stationary taps are lengthened.
- queueTouch(p.x,p.y,false,tap,tap && !tap.moved ? MIN_TAP_MS : 0);
+ // Never stretch cancelled swipes into long-presses. Always send the up edge
+ // even when a pointercancel/blur happens outside of the display surface.
+ queueTouch(p.x,p.y,false,tap,!cancelled && tap && !tap.moved ? MIN_TAP_MS : 0);
 }
-img.addEventListener("pointerup",pointerUp);
-img.addEventListener("pointercancel",pointerUp);
+img.addEventListener("pointerup",function(e){finishPointer(e,false);});
+img.addEventListener("pointercancel",function(e){finishPointer(e,true);});
+img.addEventListener("lostpointercapture",function(e){finishPointer(e,true);});
+window.addEventListener("blur",function(){finishPointer(null,true);});
+window.addEventListener("pagehide",function(){finishPointer(null,true);});
+document.addEventListener("visibilitychange",function(){if(document.hidden)finishPointer(null,true);});
 async function sendAt(x,y,down){
  return queueTouch(x,y,down,null,0);
 }

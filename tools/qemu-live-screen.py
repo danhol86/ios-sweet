@@ -97,6 +97,13 @@ class ViewerHandler(BaseHTTPRequestHandler):
     frame_sequence = 0
     frame_sampled_at = 0.0
     frame_session = None
+    frame_samples = 0
+    frame_changes = 0
+    frame_errors = 0
+    frame_snapshot_ms = 0.0
+    frame_encode_ms = 0.0
+    frame_total_snapshot_ms = 0.0
+    frame_total_encode_ms = 0.0
 
     @classmethod
     def reset_cache(cls):
@@ -105,6 +112,13 @@ class ViewerHandler(BaseHTTPRequestHandler):
             cls.frame_digest = None
             cls.frame_sequence = 0
             cls.frame_sampled_at = 0.0
+            cls.frame_samples = 0
+            cls.frame_changes = 0
+            cls.frame_errors = 0
+            cls.frame_snapshot_ms = 0.0
+            cls.frame_encode_ms = 0.0
+            cls.frame_total_snapshot_ms = 0.0
+            cls.frame_total_encode_ms = 0.0
             # Prevent a stale ETag from a previous VM/boot from suppressing
             # the first screenshot when a user's browser tab survives restart.
             cls.frame_session = uuid.uuid4().hex[:12]
@@ -128,6 +142,24 @@ class ViewerHandler(BaseHTTPRequestHandler):
         elif path == "/status.json":
             blob = json.dumps(self.runtime_info).encode('utf-8')
             mime = "application/json; charset=utf-8"
+        elif path == "/metrics.json":
+            with self.frame_lock:
+                # Only aggregate QMP/PNG timings: never expose guest memory,
+                # filenames, URLs, screenshot pixels or private iOS metadata.
+                count = self.frame_samples
+                changed = self.frame_changes
+                metrics = {
+                    "frame_samples":count, "changed_frames":changed,
+                    "unchanged_frames":count-changed,
+                    "snapshot_errors":self.frame_errors,
+                    "last_snapshot_ms":round(self.frame_snapshot_ms,2),
+                    "last_png_encode_ms":round(self.frame_encode_ms,2),
+                    "mean_snapshot_ms":round(self.frame_total_snapshot_ms/count,2) if count else 0,
+                    "mean_png_encode_ms":round(self.frame_total_encode_ms/changed,2) if changed else 0,
+                    "framebuffer_mib":round(qemu.FB_STRIDE*qemu.FB_H/(1024*1024),2),
+                }
+            blob = json.dumps(metrics).encode('utf-8')
+            mime = "application/json; charset=utf-8"
         elif path == "/frame.png":
             mon = self.qmp_tcp or self.outdir / "mon.sock"
             rawfile = self.outdir / "viewer-frame.raw"
@@ -138,21 +170,34 @@ class ViewerHandler(BaseHTTPRequestHandler):
                     now=time.monotonic()
                     if self.frame_png is None or now-self.frame_sampled_at >= .28:
                         try:
+                            started=time.perf_counter()
                             qemu.qmp(str(mon), pmemsave=(qemu.FB_BASE, qemu.FB_STRIDE * qemu.FB_H, str(rawfile)))
                             raw = rawfile.read_bytes()
                             if len(raw) != qemu.FB_STRIDE * qemu.FB_H:
                                 raise RuntimeError("Frame snapshot length mismatch")
+                            snapshot_ms=(time.perf_counter()-started)*1000
                             digest=hashlib.blake2b(raw,digest_size=16).digest()
+                            encode_ms=0.0
                             if digest != self.frame_digest:
+                                encoding_started=time.perf_counter()
                                 type(self).frame_png=qemu.encode_png(raw,compression=2)
+                                encode_ms=(time.perf_counter()-encoding_started)*1000
                                 type(self).frame_digest=digest
                                 type(self).frame_sequence+=1
+                                type(self).frame_changes+=1
+                                type(self).frame_total_encode_ms+=encode_ms
+                            type(self).frame_samples+=1
+                            type(self).frame_snapshot_ms=snapshot_ms
+                            type(self).frame_encode_ms=encode_ms
+                            type(self).frame_total_snapshot_ms+=snapshot_ms
                             type(self).frame_sampled_at=time.monotonic()
                         finally:
                             rawfile.unlink(missing_ok=True)
                     blob=self.frame_png
                     etag='"iossweet-'+str(self.frame_session)+'-'+str(self.frame_sequence)+'"'
             except (OSError, RuntimeError, ValueError) as ex:
+                with self.frame_lock:
+                    type(self).frame_errors+=1
                 self.send_error(503, "QEMU framebuffer unavailable")
                 print(f"snapshot failed: {ex}", file=sys.stderr)
                 return
