@@ -72,9 +72,9 @@ marked that particular visit "Not Secure"). Two-core viability is verified;
 performance gain and long-running stability are still being assessed, so
 one core remains the portable default until further validation.
 
-Eight self-contained offline tests in `tests/test_qemu_viewer.py` cover PNG
+Nine self-contained offline tests in `tests/test_qemu_viewer.py` cover PNG
 channels, frame cache/ETag, concurrent viewers, input security, native
-boot-arg boundaries and missing prerequisites.
+boot-arg boundaries, missing prerequisites and a QEMU PID safety check.
 `python -m unittest discover -s tests -p test_qemu_viewer.py`
 passed locally on Windows. Private Apple root disks, screenshots, traces and
 QEMU runtime files are not committed to the repository.
@@ -88,6 +88,13 @@ diagnostic capture is enabled; no paths, keys or device identifiers.
 kernel or 16 GiB iOS disk are missing. It deliberately does **not** reject
 low free RAM while a guest is already running, because opening its existing
 viewer must remain possible.
+
+The `-Stop` path verifies that the saved QEMU PID still points to this
+project's actual `qemu-system-aarch64.exe` before sending a QMP shutdown.
+This prevents a stale state file or reused localhost QMP port from shutting
+down an unrelated process. A live read-only identity check passed against
+the running two-core guest; the negative test rejected an ordinary Python
+process. The iOS disk is never deleted when shutting down.
 
 ## What changes compared with Docker?
 

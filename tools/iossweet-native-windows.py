@@ -87,6 +87,38 @@ def check_single_instance():
         raise RuntimeError('Another native ARM64 QEMU may be running; stop it before starting.')
 
 
+def verify_own_qemu_pid(pid):
+    """Confirm a saved PID is this project's QEMU before using QMP quit.
+
+    An old active-native.json or reused localhost port must never cause
+    `--stop` to close an unrelated emulator or service.
+    """
+    if os.name != 'nt' or type(pid) is not int or not 1 <= pid <= 0xffffffff:
+        raise ValueError('Invalid native QEMU process identity')
+    kernel32 = ctypes.windll.kernel32
+    kernel32.OpenProcess.argtypes = (ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong)
+    kernel32.OpenProcess.restype = ctypes.c_void_p
+    kernel32.QueryFullProcessImageNameW.argtypes = (
+        ctypes.c_void_p, ctypes.c_ulong, ctypes.c_wchar_p,
+        ctypes.POINTER(ctypes.c_ulong))
+    kernel32.QueryFullProcessImageNameW.restype = ctypes.c_int
+    kernel32.CloseHandle.argtypes = (ctypes.c_void_p,)
+    handle = kernel32.OpenProcess(0x1000, 0, pid)  # QUERY_LIMITED_INFORMATION
+    if not handle:
+        raise RuntimeError('Saved native QEMU PID is no longer running')
+    try:
+        buffer = ctypes.create_unicode_buffer(32768)
+        length = ctypes.c_ulong(len(buffer))
+        if not kernel32.QueryFullProcessImageNameW(handle, 0, buffer,
+                                                   ctypes.byref(length)):
+            raise RuntimeError('Cannot verify native QEMU executable path')
+        expected = QEMU_DIR / 'qemu-system-aarch64.exe'
+        if not expected.is_file() or not Path(buffer.value).samefile(expected):
+            raise RuntimeError('Saved PID is not this project\'s QEMU; refusing to signal it')
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def validate_file(path, description):
     path = path.resolve(strict=True)
     if not path.is_file():
@@ -192,6 +224,7 @@ def stop_native(state):
         log('NO_ACTIVE_NATIVE_IOS_GUEST')
         return
     record = json.loads(active.read_text())
+    verify_own_qemu_pid(record['qemu_pid'])
     port = int(record['qmp_port'])
     if not (1 <= port <= 65535):
         raise ValueError('Invalid saved QMP port')

@@ -2,6 +2,12 @@
 
 ## Two-core continuation after quiet reboot (31 October 2026, 10:00 UTC)
 
+- QMP shutdown safety improvement: `verify_own_qemu_pid` checks the saved PID
+  is **actually this project's QEMU executable** via Windows process image
+  lookup before `--stop` can signal it. Verified against active VM PID 47692
+  (read-only check); passed negative tests for Python PID and invalid PIDs.
+  Nine offline tests pass. No guest was stopped for this validation.
+
 - Follow-up ~10:08 UTC: **quiet two-core Safari Google HTTPS now verified**
   as well as example.com HTTP (ignored screenshot
   `windows-runtime/network-probe/quiet2-favorite240.png`). Adjusted the

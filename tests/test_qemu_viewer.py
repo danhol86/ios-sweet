@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import struct
 import subprocess
@@ -177,6 +178,17 @@ class HandlerTests(unittest.TestCase):
 
 
 class NativeConfigTests(unittest.TestCase):
+    def test_stop_refuses_non_qemu_process_identity(self):
+        if sys.platform != 'win32':
+            self.skipTest('Native QEMU PID lookup requires Windows')
+        spec = importlib.util.spec_from_file_location(
+            'iossweet_stop_guard_test', TOOL / 'iossweet-native-windows.py')
+        native = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(native)
+        self.assertRaises(ValueError, native.verify_own_qemu_pid, 0)
+        self.assertRaises(ValueError, native.verify_own_qemu_pid, True)
+        self.assertRaises(RuntimeError, native.verify_own_qemu_pid, os.getpid())
+
     def test_check_fails_cleanly_for_missing_guest_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             result = subprocess.run(
