@@ -2,6 +2,38 @@
 
 ## 31 October 2026 ~13:29 UTC — pointer recovery + capture metrics
 
+- Follow-up live deployment: cleanly stopped prior two-core QEMU PID 21920;
+  before restarting, copied the intact quiet-kernel overlay to ignored
+  `windows-runtime/backups/cpu2-before-metrics-20261031.qcow2`, matching
+  SHA-256 `d511b363ad8d16723a5cb6b47effe50ec23fe33bf589981bcd3369820100d665`.
+  Relaunched exactly one two-core quiet-kernel guest (PID 45248, run
+  `windows-qemu-20261031-132922`) with the new metrics backend and web UI.
+  QMP `/metrics.json` returned HTTP 200 with zero initial errors. Real
+  Playwright browser opened diagnostics, saw 9.89 MiB framebuffer, 36
+  captures (22 changed / 14 unchanged), ~23.56 ms average QMP capture,
+  ~23.63 ms average changed-frame PNG encoding, and 0 errors. Test browser
+  tab was closed afterward to eliminate unnecessary polling.
+- One-off PNG benchmark on a live framebuffer, using only the existing
+  Python standard-library encoder: compression 0 ~28.6 ms/7.4 MiB;
+  level 1 ~22.2 ms/200.5 KiB; current level 2 ~22.5 ms/182.5 KiB;
+  level 3 ~24.4 ms/140.4 KiB; level 6 ~48 ms/102.6 KiB (median of 3
+  iterations). **Retained level 2**, as level 1 gave only ~0.3 ms gain
+  with larger downloads. Benchmark raw guest screenshot was deleted after
+  measurement. QEMU remains software TCG only, no hardware accelerator.
+- **Final acceptance ~13:34 UTC passed** on this exact metrics-enabled
+  two-core guest: iOS reached lock screen, `POST /gesture` HTTP 204 unlocked
+  SpringBoard, a 240 ms touch opened Safari, and Google's real HTTPS consent
+  page rendered after the initially blank WebKit interval. Private screenshot
+  `windows-runtime/network-probe/metrics-safari-google-rendered2.png`.
+  Live `/metrics.json` showed 78 snapshots (33 changed, 45 unchanged),
+  average QMP read 25.67 ms, PNG encode 23.66 ms and 0 capture errors.
+  With the temporary Playwright browser tab closed, the capture count stayed
+  flat for an eight-second idle test; there is no automatic background
+  screenshot polling when nobody is viewing. One QEMU process remains
+  active, all original disks/kernels/backups and unrelated Docker/WSL remain
+  preserved. Kernel console shows no panic; `driverkitd` emitted one SIG9
+  crash report during boot, an outstanding non-WebKit service fault.
+
 - Current native two-core quiet-AKS guest PID 21920 remained alive throughout
   this development. Its viewer `tools/qemu-viewer.html` is hot-reloaded, so
   the improved touch-release handling is visible without a QEMU restart.

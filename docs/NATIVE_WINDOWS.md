@@ -25,6 +25,15 @@ Windows capture/encode pipeline, **not iOS frame rate** or emulation speed.
 This adds no periodic metrics sampling: values are updated incidentally
 when an actual screenshot is requested.
 
+The final live test on the verified two-core quiet-AKS kernel reached the
+home screen and rendered Google's real HTTPS cookie dialog after a delayed
+WebKit paint. A representative 78-frame session measured ~25.7 ms for a
+QMP full-frame read and ~23.7 ms for PNG encoding when the frame changed,
+with zero capture errors. These are host-side means from this one machine,
+not guarantees for other machines. Testing PNG compression levels 0, 1, 2,
+3 and 6 showed the current level 2 remains a good speed/size tradeoff;
+no lossy conversion or extra image dependencies were introduced.
+
 Native launches also now hold a Windows-enforced one-byte file lock
 (`windows-runtime/state/native-qemu-instance.lock`) throughout the QEMU
 controller's lifetime. A second launch attempting to acquire the same lock
