@@ -15,6 +15,19 @@
   simulator confirms one gesture request per button with no individual
   touch requests; pointer-cancel recovery tests and adaptive-viewer tests
   also pass. Revalidate the actual running QEMU after deploying backend.
+- Deployment limitation: after cleanly stopping the previous QEMU PID 45248,
+  backed up its writable two-core disk to ignored
+  `windows-runtime/backups/cpu2-before-swipes-20261031.qcow2`, SHA-256
+  `17e26dec38112f8a901f94e838264a1e6b6f068ede13fca8e0e1f8d46c2999d4`.
+  The Windows launcher correctly REFUSED startup at approximately 4.5 GiB
+  free physical RAM (required minimum: 6 GiB). Existing Docker Desktop WSL
+  VM was using roughly 10-12 GiB; all 35 unrelated running Docker containers
+  were preserved. A one-time Linux page-cache reclaim (`sync`, then root
+  `sysctl -w vm.drop_caches=3`) reduced cache from roughly 8 GiB to 1.2 GiB
+  without stopping containers, but did not free enough Windows physical RAM
+  to pass the safe startup threshold. No extra QEMU guest started; leave the
+  verified backup untouched and launch the new version only when at least
+  6 GiB is genuinely free. **Live swipe functionality is not yet verified.**
 
 ## 31 October 2026 ~13:29 UTC — pointer recovery + capture metrics
 

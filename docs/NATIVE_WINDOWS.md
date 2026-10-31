@@ -18,6 +18,14 @@ the virtual finger upward. JavaScript pointer tests and Python HTTP tests
 validate the command count, safe bounds, one-request UI, and rejection of
 invalid gestures. Actual scrolling on each app is subject to iOS handling.
 
+On the development host, the first deployment attempt was blocked by the
+existing **6 GiB free-RAM safety requirement** while Docker Desktop's WSL VM
+was holding much of the 32 GiB host's memory. The live iOS disk was safely
+backed up before the attempt. The offline gesture tests pass, but the new
+backend gesture code must still pass a real QEMU/Safari check when memory is
+available. The launcher intentionally refuses to force a start into heavy
+paging, and it never shuts down unrelated Docker containers to make room.
+
 ### Pointer recovery and host capture metrics
 
 The HTML viewer queues all touchscreen events in order. It now guarantees
