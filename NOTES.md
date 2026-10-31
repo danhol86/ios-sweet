@@ -1,5 +1,42 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## 31 October 2026 12:04 UTC — optional quiet AKS kernel live verified
+
+- First stopped PID 44780 through verified QMP shutdown; copied the intact
+  current two-core overlay to ignored
+  `windows-runtime/backups/cpu2-pre-quiet-test-20261031.qcow2`, matching
+  SHA-256 `d501379e8ec7d138dcb2691f057c58662d5fc1be807d6172912855403cda78b6`.
+  Left unrelated WSL/Docker processes and the original single-core disk alone.
+- Booted CI kernel `7dc86497...` on the separate
+  `ios-cpu2-aks-quiet-candidate.qcow2` overlay, two QEMU CPUs, sRGB,
+  diagnostics disabled. Boot payload explicitly contained `sweet_aks_quiet=1`,
+  `sweetiolog=-` and the QEMU network + multicore switches. PID 53488
+  reached lock screen, `POST /gesture` unlocked it, MobileSafari opened
+  and rendered Google's HTTPS consent dialog. The matching kernel console
+  showed **0 AKS selector-debug traces**. Screenshots remain under ignored
+  `windows-runtime/network-probe/quiet-aks-*.png`. The validated candidate
+  overlay was then gracefully stopped and backed up with SHA-256
+  `efaefa38f23fa4ad2dded56dbae2b942f6df4b70d5c96ef547868e282c273884`.
+- Saved the old verified kernel unchanged; copied the new build to ignored
+  `windows-runtime/guest/kernel.aks-quiet.sweet` and recorded its exact SHA
+  in `windows-runtime/state/native-kernel-sha256.txt`. Native Windows launcher
+  now selects it locally with verification; `-LegacyKernel` bypasses it.
+  The original and Docker kernel pins are unchanged. Also hardened shortcut
+  reuse: mismatched `-LegacyKernel`, `-SingleCore` and `-Diagnostics` are
+  rejected even without `-SrgbDisplay`, verified three negative tests.
+- Launched local shortcut using the newer preserved two-core overlay,
+  quiet kernel PID 29212, run `windows-qemu-20261031-120409`. Runtime state
+  records `kernel_sha256=7dc86497...`, `cpus=2`, `diagnostics=false`.
+  The new read-only `tools/Test-IosSweet-Windows.ps1` passed: one verified
+  native QEMU, matching installed kernel checksum, viewer JSON, valid PNG
+  framebuffer. **Final full check now passed** on this exact session:
+  guest reached the lock screen, batched `POST /gesture` unlocked SpringBoard,
+  a 240 ms QMP click launched Safari, and Google rendered the real cookie
+  dialog over HTTPS with a padlock. Private screenshot:
+  `windows-runtime/network-probe/promoted-safari-google-final.png`.
+  The prior single-core and two-core QCOW2 saves, original kernel, and
+  unrelated Docker workload remain untouched. GUI remains available on 8108.
+
 ## Follow-up 31 October 2026, 10:14 UTC — verified launcher / new kernel candidate
 
 - The actual `Start-IosSweet-Windows.ps1 -SrgbDisplay -NoBrowser` desktop

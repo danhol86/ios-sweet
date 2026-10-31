@@ -1,19 +1,63 @@
 # Native Windows QEMU backend (experimental)
 
-The optional quiet-AKS kernel patch (`0098`) has a successful macOS build in
-GitHub Actions run `41191163506`; its verified kernel and an isolated cloned
-QCOW2 are staged under ignored `windows-runtime/`. Boot-payload preparation
-passed without starting another emulator. The **known-good** kernel remains
-installed until an isolated live candidate boot and browser check pass.
+## Verified quiet-kernel selection and smoke checks (31 October 2026)
 
-The local desktop launcher was independently retested end-to-end on the
-two-core preference on 31 October 2026: it opened one QEMU instance,
-served the new viewer's `/status.json`, booted iOS to the lock screen,
-unlocked using the batched Home gesture and launched Safari with a 240 ms
-tap. Safari rendered Google's actual HTTPS page and cookie dialog, with
-a secure padlock. This verifies the launcher and previous kernel, **not**
-the new optional quiet-AKS candidate. The test copy and previous state have
-separate ignored backups; no Apple system files are distributed.
+The optional `0098` AKS debug-logging patch is now **live-tested** with
+native two-core QEMU, on a separate private QCOW2 clone. It reached the
+lock screen, unlocked into SpringBoard using `POST /gesture`, launched
+Safari and **rendered Google's consent dialog over HTTPS with a padlock**.
+The matching in-memory SWEET kernel console contained **zero AKS selector
+trace lines**, confirming that `sweet_aks_quiet=1` took effect while normal
+iOS services remained functional. A second QEMU instance was never run.
+GitHub Actions kernel build `41191163506` succeeded. SHA-256 of the newly
+tested kernel: `7dc86497ccd0c224ec1e6b8430be6f2dd7a46ac13ef795ed4047d0adf7d3bde8`.
+
+On the tested Windows PC, the new binary is installed **alongside** the
+original as ignored `windows-runtime/guest/kernel.aks-quiet.sweet`, with
+its hash stored in ignored `windows-runtime/state/native-kernel-sha256.txt`.
+The preserved original is `kernel.development.sweet` (SHA-256
+`85039335d05d335d1f9b33f7c8131d274477c50020915ff0335b42428abe998a`).
+The one-click native launcher selects the newer file only when the local
+preference exists and its hash is verified; otherwise it uses the original.
+The original kernel also has a separate backup under ignored
+`windows-runtime/backups/kernel-original-20261031.sweet`.
+**Docker, physical-device preparation and fresh installs remain on their
+separately pinned original kernel**, rather than silently changing other
+platforms to an untested build.
+
+To roll back after **cleanly stopping** the running emulator, start the
+original on the one-core disk using:
+
+```powershell
+powershell -NoProfile -File tools/Start-IosSweet-Windows.ps1 -Stop
+powershell -NoProfile -File tools/Start-IosSweet-Windows.ps1 -SrgbDisplay -SingleCore -LegacyKernel
+```
+
+For a two-core test with the original kernel, omit `-SingleCore` and keep
+`-LegacyKernel`. The launcher now rejects any explicit request for the
+legacy kernel, a different core count or enabling diagnostics **even if
+`-SrgbDisplay` was omitted**, when a nonmatching guest is already running.
+It must never start an additional instance to fulfil a mode change.
+
+A read-only runtime smoke check is available:
+
+```powershell
+powershell -NoProfile -File tools/Test-IosSweet-Windows.ps1 -ExpectedCpus 2
+```
+
+It verifies the current QEMU process/executable, actual kernel file hash,
+the viewer's status JSON and a valid framebuffer PNG, without restarting
+iOS or changing its disk. It intentionally **does not** claim Safari has
+network access; that must be confirmed by an actual browser navigation.
+
+The **previous kernel** had already passed the two-core desktop launcher and
+Safari check. The **new quiet-AKS kernel** then passed its own separate
+live test on an isolated QCOW2 before local opt-in. Finally, the actual
+one-click launcher used the *new* kernel and original current two-core
+save, booted to SpringBoard, and rendered Google's secure HTTPS consent
+dialog again. The installed original kernel remains the rollback option.
+All private test disks and screenshots remain ignored; no Apple system
+files are distributed through the repository.
 
 ## Tested local two-core relaunch and rollback (31 October 2026)
 

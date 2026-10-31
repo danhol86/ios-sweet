@@ -63,6 +63,18 @@ browser networking and rendering *can* work, though the unaccelerated
 ARM64 guest is still extremely slow. Repeatability across websites and
 fresh boots is not yet fully validated; see `docs/SAFARI_NETWORK_DIAG.md`.
 
+**31 October 2026 follow-up:** The Windows 2-CPU build is now verified across
+multiple boots, including Safari rendering Google over HTTPS. Its locally
+optional `0098` quiet-logging kernel successfully booted and rendered the
+same real external HTTPS page, both on an isolated candidate disk and from
+the one-click Windows launcher with the original preserved two-core save.
+The original single-core kernel/disk remain available for rollback; Docker
+and physical-phone kernel pins are unchanged. Running users can check their
+live Windows instance without modifying the guest using
+`powershell -NoProfile -File tools/Test-IosSweet-Windows.ps1`.
+This is still **software-emulated ARM64**, with significant performance
+limitations and no demonstrated long-term stability guarantee.
+
 **31 October:** An isolated two-core native Windows guest reached SpringBoard,
 loaded Google over HTTPS, and displayed example.com over HTTP. It also
 booted a second time with diagnostics disabled and loaded the HTTP page

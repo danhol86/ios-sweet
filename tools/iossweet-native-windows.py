@@ -393,7 +393,8 @@ def run_locked(args, state, qemu_bin, qemu_img):
             'qemu_pid': process.pid, 'qmp_port': args.qmp_port,
             'viewer_port': args.port, 'run': str(run),
             'srgb_display': args.srgb_display,
-            'cpus': args.cpus, 'diagnostics': args.diagnostics}, indent=2))
+            'cpus': args.cpus, 'diagnostics': args.diagnostics,
+            'kernel_sha256': args.kernel_sha256}, indent=2))
         log(f'NATIVE_WINDOWS_VIEWER_READY=http://127.0.0.1:{args.port}/')
         if not args.no_browser:
             webbrowser.open(f'http://127.0.0.1:{args.port}/')
