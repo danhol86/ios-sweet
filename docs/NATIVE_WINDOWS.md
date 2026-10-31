@@ -1,5 +1,48 @@
 # Native Windows QEMU backend (experimental)
 
+## Viewer and CPU experiments — 31 October 2026
+
+The Windows viewer now caches unchanged framebuffer snapshots and returns
+HTTP 304 with an ETag; concurrent clients share one QMP read. It adapts the
+refresh interval (350 ms immediately after input, 800 ms while idle, 2500 ms
+while the browser tab is hidden), rather than refreshing unconditionally
+every 1600 ms. On the live 1080×2400 framebuffer, PNG compression level 2
+took about **26 ms** versus **51 ms** for the prior level 6. This is an
+encoding benchmark, **not a claim that iOS itself runs twice as fast**.
+
+Home gestures now use one timed, 30-event QMP connection instead of 30
+individual browser HTTP/QMP calls. A live run invoked that new QMP path and
+returned Safari to SpringBoard in 1.59 seconds. A 350 ms tap opened Safari
+on the two-core guest whereas a 900 ms touch triggered the native long-press
+menu, so the UI now holds short taps for **375 ms** after QMP acknowledgement.
+Cross-origin POST input is rejected.
+
+Normal launches now omit expensive opt-in diagnostic sampling, verbose
+network tracing and packet capture. To collect kernel/PCAP evidence again,
+launch `tools/Start-IosSweet-Windows.ps1 -SrgbDisplay -Diagnostics` only when
+there is **no running guest** (do not shut down a healthy VM just to enable
+traces). The desktop shortcut remains on the safe single-core runtime.
+
+Experimental `python tools/iossweet-native-windows.py --cpus 2` exists for
+isolated performance testing. It uses QEMU PSCI HVC and two DT CPU nodes;
+it **refuses to use the known-good persistent overlay**. Supply a separate,
+verified clone with `--overlay PATH` only after the VM has fully stopped.
+On 31 October 2026, a two-CPU guest was started using an independently
+SHA256-verified copy; the kernel reported both CPUs online and SGI1 verified.
+**Subsequent live tests passed:** the two-CPU guest reached the iOS lock
+screen, unlocked into SpringBoard via the batched `/gesture` API, launched
+MobileSafari, and rendered Google's consent dialog over **HTTPS**. The guest
+also loaded and rendered `example.com` over **HTTP** (Safari correctly
+marked that particular visit "Not Secure"). Two-core viability is verified;
+performance gain and long-running stability are still being assessed, so
+one core remains the portable default until further validation.
+
+Six self-contained offline tests in `tests/test_qemu_viewer.py` cover PNG
+channels, frame cache/ETag, concurrent viewers, input security and native
+boot-arg boundaries. `python -m unittest discover -s tests -p test_qemu_viewer.py`
+passed locally on Windows. Private Apple root disks, screenshots, traces and
+QEMU runtime files are not committed to the repository.
+
 ## What changes compared with Docker?
 
 The ARM64 iOS guest can run directly under **Windows QEMU 11.1+**, without

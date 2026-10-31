@@ -1,5 +1,50 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## Windows viewer improvements and two-core experiment (2026-10-31 09:48 UTC)
+
+- The live `windows-qemu-virtio` single-core guest was preserved and gracefully
+  stopped with QMP after verified Google and example.com Safari browsing.
+  Its writable `windows-runtime/state/ios.qcow2` was backed up to the ignored
+  `windows-runtime/backups/ios-before-cpu2-20261031.qcow2`. A separate test
+  overlay `windows-runtime/state/ios-cpu2-experiment.qcow2` was cloned from
+  the backup. **All three SHA-256 hashes matched:**
+  `e7e3b24a51a906821154185d7da626695315d1c8b8a4dbf60057d3cfa325e8d3`.
+  The backing raw Apple disk is read-only and unchanged.
+- First experimental two-CPU native Windows QEMU boot is `windows-runtime/state/windows-qemu-20261031-094744`;
+  guest PID 68536, port 8108, sRGB display, diagnostics enabled. Real console
+  confirmed `SWEET CPU: 2/2 CPUs initialized, SGI1 verified` and launched
+  SpringBoard/backboardd. At this milestone the framebuffer showed the Apple
+  logo; **full UI usability and networking not yet demonstrated for two CPUs**.
+  Never run this concurrently with the known-good single-core guest.
+- Viewer: 350/800/2500ms adaptive refresh, no redundant PNG encoding for
+  unchanged frames, ETags/304, thread-safe snapshot sharing across clients;
+  compression-2 encoding measured ~26ms vs 51ms at compression-6. One
+  batched QMP Home gesture (30 events over one socket) returned the live
+  single-core guest to SpringBoard in 1.59 seconds. The live browser viewer
+  passed its new HTML/ETag smoke check in the experimental two-core session.
+- Update: 2-CPU Windows guest reached real lock screen, then a `POST /gesture`
+  HTTP 204 returned to the fully rendered SpringBoard home screen. A 900ms
+  tap on Safari invoked iOS's long-press context menu; dismissing it and
+  tapping Safari for 350ms opened MobileSafari and launched WebKit Networking,
+  WebContent and GPU processes. Fixed web viewer minimum click to 375ms;
+  **later confirmed Google page rendering with HTTPS padlock and consent
+  dialog** (`windows-runtime/network-probe/cpu2-google-later.png`). It also
+  loaded `example.com` in Safari over **plain HTTP** with multilingual text
+  and "Not Secure" indicator (`cpu2-example-visit.png`). Two-core Safari
+  and networking pass; long-term stability and actual speedup remain open.
+- Normal Windows boots now omit kernel sampler, verbose network tracing, and
+  packet capture, with `--diagnostics` opt-in. Experimental `--cpus 2` requires
+  a non-default guest overlay to protect known-good saved state.
+- Six offline viewer tests passed; Python compile, Git whitespace and Node
+  script syntax checks passed. Diagnostic kernel CI `41143670554` succeeded;
+  verified output SHA-256
+  `162e3e007b56d96414bc477894c180afa56a5bcfc9b63e4b4236bcac79efb468`
+  is staged under ignored `windows-runtime/experiments/xnu-run-41143670554`.
+  **Current verified GUI kernel remains unchanged**, not automatically swapped.
+- Next: verify full two-core SpringBoard unlock, Safari HTTPS, repeated taps
+  and stability, compare speed against single core, revert if any regression.
+  Then evaluate safe startup defaults. Keep the source overlay and all backups.
+
 ## Latest Windows Safari and network result (30 October 2026, 23:21 UTC)
 
 - **Verified external HTTPS success:** active *single* Windows QEMU guest at

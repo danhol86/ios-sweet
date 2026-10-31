@@ -14,6 +14,7 @@ param(
   [switch]$CheckOnly,
   [switch]$Stop,
   [switch]$SrgbDisplay,
+  [switch]$Diagnostics,
   [switch]$NoBrowser
 )
 $ErrorActionPreference='Stop'
@@ -71,6 +72,7 @@ if($available -lt 6){
 $launchArgs='"'+$script+'"'
 if($NoBrowser){$launchArgs+=' --no-browser'}
 if($SrgbDisplay){$launchArgs+=' --srgb-display'}
+if($Diagnostics){$launchArgs+=' --diagnostics'}
 $logDir=Join-Path $repo 'windows-runtime\logs'
 if(-not(Test-Path -LiteralPath $logDir)){New-Item -ItemType Directory -Path $logDir -Force|Out-Null}
 $stamp=Get-Date -Format 'yyyyMMdd_HHmmss_fff'

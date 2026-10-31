@@ -1,5 +1,22 @@
 # iOS Sweet / QEMU: Safari blank-page network investigation
 
+## Two-core Windows QEMU follow-up (31 October 2026)
+
+The isolated two-core native Windows QEMU guest (run
+`windows-runtime/state/windows-qemu-20261031-094744`) booted real iOS 16
+to SpringBoard with both virtual CPUs online. Safari navigated to Google
+over HTTPS, eventually rendered the Google consent dialog and displayed the
+padlock. TCP flows included approximately 4,930 outgoing and 9,982 incoming
+bytes for one Google connection; a preceding short TLS connection closed
+without a complete page, just like the earlier single-core control.
+
+In a separate navigation, typing `example.com` in Safari loaded the page's
+multilingual body. This particular request was **plain HTTP**, indicated by
+Safari's "Not Secure" label, not an HTTPS validation of example.com.
+Screenshots and PCAP remain under ignored `windows-runtime/network-probe/`
+and the run folder. Both CPU counts have now demonstrated real web browsing;
+this does not establish improved performance or uninterrupted reliability.
+
 ## Latest verified native Windows result (30 October 2026, 23:21 UTC)
 
 **Safari has now rendered a real external HTTPS page.** On the *single*

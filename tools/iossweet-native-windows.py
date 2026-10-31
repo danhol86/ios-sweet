@@ -98,6 +98,31 @@ def slash(path):
     return str(path).replace('\\', '/')
 
 
+def guest_boot_args(cpus=1, diagnostics=False):
+    """Keep costly sampling/tracing off for ordinary native Windows boots.
+
+    Multi-core is opt-in until its boot and app behavior are validated. The
+    `sweet_qemu_smp` switch changes only QEMU's virtual MPIDR/PSCI path.
+    """
+    if cpus not in (1, 2):
+        raise ValueError('Only 1 CPU (stable) or 2 CPUs (experimental) supported')
+    base = (
+        'debug=0xc serial=3 cpus={cpus} keepsyms=1 '
+        '-noprogress rd=virtiodisk0 unentitled_ios_sim_launch=1 rootrw=1 '
+        'launchd_unsecure_cache=1 ignition_level=1 wdt_test=no_user_checkin '
+        'wdt=-1 sweet_qemu_keep_awake=1 sweetfb_noconsole=1 '
+        'sweet_qemu_network_delegate=1'
+    ).format(cpus=cpus)
+    if cpus > 1:
+        base += ' sweet_qemu_smp=1'
+    if diagnostics:
+        base += (' -enable_kprintf_spam '
+                 'sweetsample=SpringBoard,lsd,MobileGestaltHel,backboardd '
+                 'sweetsample_delay=12 sweetsample_interval=25 '
+                 'sweet_qemu_network_trace=1 sweet_qemu_necp_trace=1')
+    return base
+
+
 def check_overlay(qemu_img, disk, overlay):
     if overlay.exists():
         data = json.loads(subprocess.check_output(
@@ -203,22 +228,14 @@ def prepare(args, state, qemu_bin, qemu_img, require_ram=True):
     run.mkdir(parents=True)
     qemu_adt = run / 'qemu.adt'
     adt_cmd = [sys.executable, str(TOOL / 'mkadt.py'),
-               str(qemu_adt), '--qemu', '--highmem', '--qemu-cpus=1']
+               str(qemu_adt), '--qemu', '--highmem',
+               '--qemu-cpus='+str(args.cpus)]
     if args.srgb_display:
         adt_cmd.append('--qemu-srgb-display')
     subprocess.run(adt_cmd,
                    check=True, timeout=60)
     log('NATIVE_QEMU_DISPLAY_GAMUT='+('sRGB_EXPERIMENT' if args.srgb_display else 'P3_ORIGINAL'))
-    cmdline = (
-        'debug=0xc serial=3 cpus=1 keepsyms=1 -enable_kprintf_spam '
-        '-noprogress rd=virtiodisk0 unentitled_ios_sim_launch=1 rootrw=1 '
-        'launchd_unsecure_cache=1 ignition_level=1 wdt_test=no_user_checkin '
-        'wdt=-1 sweetsample=SpringBoard,lsd,MobileGestaltHel,backboardd '
-        'sweetsample_delay=12 sweetsample_interval=25 '
-        'sweet_qemu_keep_awake=1 sweetfb_noconsole=1 '
-        'sweet_qemu_network_delegate=1 sweet_qemu_network_trace=1 '
-        'sweet_qemu_necp_trace=1'
-    )
+    cmdline = guest_boot_args(args.cpus, args.diagnostics)
     payload = run / 'payload.bin'
     subprocess.run([sys.executable, str(TOOL / 'mkpayload.py'),
                     str(kernel), str(qemu_adt), str(payload), '--cmdline', cmdline],
@@ -258,6 +275,9 @@ def start(args):
     for path in (qemu_bin, qemu_img):
         validate_file(path, 'Native QEMU executable')
     check_single_instance()
+    if args.cpus > 1 and args.overlay.resolve() == (WIN_STATE/'ios.qcow2').resolve():
+        raise RuntimeError('Experimental two-core QEMU cannot write the known-good '
+                           'iOS overlay. Supply a separately backed-up test overlay.')
     check_ports(args.qmp_port, args.port)
     state = args.state.resolve()
     state.mkdir(parents=True, exist_ok=True)
@@ -283,12 +303,10 @@ def run_locked(args, state, qemu_bin, qemu_img):
     argv = [str(qemu_bin), '-M', 'virt,gic-version=3',
             '-accel', 'tcg,thread=multi',
             '-global', 'virtio-mmio.force-legacy=false',
-            '-cpu', 'cortex-a76', '-smp', '1', '-m', f'{ram_gib}G',
+            '-cpu', 'cortex-a76', '-smp', str(args.cpus), '-m', f'{ram_gib}G',
             '-nic', 'none', '-nographic',
             '-serial', 'file:' + slash(run / 'serial.txt'),
             '-qmp', f'tcp:127.0.0.1:{args.qmp_port},server=on,wait=off',
-            '-d', 'guest_errors,unimp',
-            '-D', slash(run / 'qemu.log'),
             '-no-reboot',
             '-device', f'loader,file={slash(run / "ram.bin")},addr={phys:#x},force-raw=on',
             '-device', f'loader,file={slash(run / "stub.bin")},addr={qemu.STUB_PA:#x},force-raw=on',
@@ -297,8 +315,11 @@ def run_locked(args, state, qemu_bin, qemu_img):
             '-device', 'virtio-blk-device,drive=iosroot',
             '-device', 'virtio-tablet-device,id=sweet-tablet',
             '-netdev', 'user,id=sweetnet,net=10.0.2.0/24',
-            '-device', 'virtio-net-device,netdev=sweetnet,mac=02:50:53:57:00:01',
-            '-object', f'filter-dump,id=sweetdump,netdev=sweetnet,file={slash(run / "network.pcap")}']
+            '-device', 'virtio-net-device,netdev=sweetnet,mac=02:50:53:57:00:01']
+    if args.diagnostics:
+        argv += ['-d', 'guest_errors,unimp',
+                 '-D', slash(run / 'qemu.log'),
+                 '-object', f'filter-dump,id=sweetdump,netdev=sweetnet,file={slash(run / "network.pcap")}']
     (run / 'command.json').write_text(json.dumps(argv[1:], indent=2))
     log('NATIVE_WINDOWS_QEMU='+str(qemu_bin))
     qemu_log = (run / 'qemu-stdout.txt').open('w', encoding='utf-8')
@@ -322,12 +343,14 @@ def run_locked(args, state, qemu_bin, qemu_img):
         viewer.ViewerHandler.outdir = run
         viewer.ViewerHandler.input_enabled = True
         viewer.ViewerHandler.qmp_tcp = endpoint
+        viewer.ViewerHandler.reset_cache()
         server = viewer.ThreadingHTTPServer(('127.0.0.1', args.port), viewer.ViewerHandler)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         (state / 'active-native.json').write_text(json.dumps({
             'qemu_pid': process.pid, 'qmp_port': args.qmp_port,
             'viewer_port': args.port, 'run': str(run),
-            'srgb_display': args.srgb_display}, indent=2))
+            'srgb_display': args.srgb_display,
+            'cpus': args.cpus, 'diagnostics': args.diagnostics}, indent=2))
         log(f'NATIVE_WINDOWS_VIEWER_READY=http://127.0.0.1:{args.port}/')
         if not args.no_browser:
             webbrowser.open(f'http://127.0.0.1:{args.port}/')
@@ -361,6 +384,10 @@ def main():
     parser.add_argument('--kernel-sha256', default='85039335d05d335d1f9b33f7c8131d274477c50020915ff0335b42428abe998a')
     parser.add_argument('--port', type=int, default=8108)
     parser.add_argument('--qmp-port', type=int, default=4444)
+    parser.add_argument('--cpus', type=int, default=1, choices=(1, 2),
+                        help='one core is verified; two-core QEMU is an isolated experimental mode')
+    parser.add_argument('--diagnostics', action='store_true',
+                        help='opt in to verbose kernel traces, sampling and network PCAP; avoid for normal use')
     parser.add_argument('--no-browser', action='store_true')
     parser.add_argument('--srgb-display', action='store_true',
                         help='experiment: advertise an 8-bit sRGB screen instead of iPhone X P3 in synthetic QEMU /product ADT')

@@ -104,7 +104,16 @@ def stub(ba_pa, entry_pa):
     return struct.pack('<4I2Q', 0x58000080, 0x580000a1, 0xd61f0020, 0xd503201f, ba_pa, entry_pa)
 
 
-def write_png(path, raw):
+def encode_png(raw, compression=6):
+    """Encode the physical BGRA framebuffer without third-party image packages.
+
+    A low compression level is useful for live viewing; keep the historical
+    level-6 default for snapshot artifacts.
+    """
+    if len(raw) != FB_STRIDE * FB_H:
+        raise ValueError('Framebuffer length mismatch')
+    if not 0 <= compression <= 9:
+        raise ValueError('Invalid PNG compression level')
     rows = []
     for y in range(FB_H):
         line = raw[y * FB_STRIDE:(y + 1) * FB_STRIDE]
@@ -113,8 +122,13 @@ def write_png(path, raw):
         rows.append(b'\0' + bytes(rgb))
     chunk = lambda t, d: struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d))
     png = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', FB_W, FB_H, 8, 2, 0, 0, 0))
-    png += chunk(b'IDAT', zlib.compress(b''.join(rows), 6)) + chunk(b'IEND', b'')
-    open(path, 'wb').write(png)
+    png += chunk(b'IDAT', zlib.compress(b''.join(rows), compression)) + chunk(b'IEND', b'')
+    return png
+
+
+def write_png(path, raw):
+    with open(path, 'wb') as file:
+        file.write(encode_png(raw))
 
 
 def payload_data(payload, va, size):
