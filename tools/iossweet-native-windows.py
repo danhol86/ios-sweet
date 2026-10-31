@@ -120,6 +120,11 @@ def guest_boot_args(cpus=1, diagnostics=False):
                  'sweetsample=SpringBoard,lsd,MobileGestaltHel,backboardd '
                  'sweetsample_delay=12 sweetsample_interval=25 '
                  'sweet_qemu_network_trace=1 sweet_qemu_necp_trace=1')
+    else:
+        # Patch 0049 normally traces up to 400 backboardd IOKit matches.
+        # Preserve full trace access for --diagnostics, but skip costly
+        # dictionary serialization and printing in normal iOS sessions.
+        base += ' sweetiolog=- sweet_aks_quiet=1'
     return base
 
 

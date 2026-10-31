@@ -170,7 +170,8 @@ class NativeConfigTests(unittest.TestCase):
         args = native.guest_boot_args()
         for required in ('cpus=1', 'rd=virtiodisk0',
                          'sweet_qemu_network_delegate=1',
-                         'sweet_qemu_keep_awake=1', 'sweetfb_noconsole=1'):
+                         'sweet_qemu_keep_awake=1', 'sweetfb_noconsole=1',
+                         'sweetiolog=-', 'sweet_aks_quiet=1'):
             self.assertIn(required, args)
         for diagnostic in ('sweetsample=', 'sweet_qemu_network_trace=1',
                            'sweet_qemu_necp_trace=1', 'sweet_qemu_smp=1',
@@ -179,6 +180,8 @@ class NativeConfigTests(unittest.TestCase):
         diagnostic = native.guest_boot_args(1, True)
         self.assertIn('sweet_qemu_network_trace=1', diagnostic)
         self.assertIn('-enable_kprintf_spam', diagnostic)
+        self.assertNotIn('sweetiolog=-', diagnostic)
+        self.assertNotIn('sweet_aks_quiet=1', diagnostic)
         experimental = native.guest_boot_args(2)
         self.assertIn('cpus=2', experimental)
         self.assertIn('sweet_qemu_smp=1', experimental)

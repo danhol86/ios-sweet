@@ -63,6 +63,14 @@ browser networking and rendering *can* work, though the unaccelerated
 ARM64 guest is still extremely slow. Repeatability across websites and
 fresh boots is not yet fully validated; see `docs/SAFARI_NETWORK_DIAG.md`.
 
+**31 October:** An isolated two-core native Windows guest reached SpringBoard,
+loaded Google over HTTPS, and displayed example.com over HTTP. It also
+booted a second time with diagnostics disabled and loaded the HTTP page
+again. The live viewer has frame caching, adaptive refresh, faster PNG
+encoding and a batched Home gesture. The Windows test PC uses a **local-only
+two-core preference** with a saved single-core fallback; new installations
+continue to default to one core. See `docs/NATIVE_WINDOWS.md`.
+
 > **Physical-phone installation only:** Experimental bring-up, not a usable phone OS. Many things are missing or stubbed (see below), and Apple's security model is mostly switched off. Flashing the phone installs into the `userdata` partition and so **erases Android's user data**. The Windows/Docker installer does not flash a phone.
 
 ## What works

@@ -1,5 +1,38 @@
 # Native Windows QEMU backend (experimental)
 
+## Tested local two-core relaunch and rollback (31 October 2026)
+
+On the tested D:-drive Windows machine, `windows-runtime/state/native-cpus.txt`
+contains `2`. This **ignored, local-only** file makes the desktop shortcut
+select the tested two-core guest saved at
+`windows-runtime/state/ios-cpu2-experiment.qcow2`, with a separate backup
+at `windows-runtime/backups/cpu2-after-browser-20261031.qcow2`. The
+original one-core `ios.qcow2` is not overwritten. The launcher accepts
+only this exact known project-local overlay, and still refuses a second
+QEMU instance. Its running-instance reuse test retained the same PID.
+
+To return to the original single-core state, run from the project folder:
+
+```powershell
+powershell -NoProfile -File tools/Start-IosSweet-Windows.ps1 -Stop
+powershell -NoProfile -File tools/Start-IosSweet-Windows.ps1 -SrgbDisplay -SingleCore
+```
+
+`-SingleCore` overrides the local preference without deleting it. Removing
+`native-cpus.txt` restores the one-core default permanently. A different
+PC or fresh clone defaults to one CPU with no preference file. The two-core
+guest has also passed a second **normal low-overhead reboot**, unlocked into
+SpringBoard, and rendered an example.com HTTP page in Safari; this is
+limited repeatability evidence, not proof of sustained stability or a
+particular speedup.
+
+Future kernel builds can use `sweetiolog=-` to disable IOKit matching logs
+and `sweet_aks_quiet=1` (new patch 0098) to suppress only frequent AKS
+selector **logging**. Normal QEMU boots set these switches; diagnostic
+boots preserve logs. The AKS patch requires a new, independently validated
+kernel and is **not installed on the current verified GUI guest**. Neither
+option changes keybag/selector behavior or physical Redmi defaults.
+
 ## Viewer and CPU experiments — 31 October 2026
 
 The Windows viewer now caches unchanged framebuffer snapshots and returns

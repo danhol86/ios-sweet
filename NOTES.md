@@ -1,5 +1,30 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## Two-core continuation after quiet reboot (31 October 2026, 10:00 UTC)
+
+- Gracefully stopped the first two-core diagnostics guest. Copied its tested
+  overlay to `windows-runtime/backups/cpu2-after-browser-20261031.qcow2`,
+  SHA-256 `4635071c4fed373427e5c60ad787b5239c29c1d64035114edc73508a29231f15`.
+  The original verified one-core `state/ios.qcow2` was not touched.
+- Started quiet (no sampler, no PCAP, no verbose trace) two-core guest with
+  same experiment overlay in `windows-qemu-20261031-095611`, PID 47692,
+  port 8108. It booted to lock screen, unlocked with new `/gesture` HTTP 204,
+  reached SpringBoard and rendered example.com HTML over HTTP in Safari.
+  Evidence is ignored under `windows-runtime/network-probe/`. This verifies
+  a subsequent boot but **does not yet establish long-term stability or speedup**.
+- Added local ignored `windows-runtime/state/native-cpus.txt` with value `2`;
+  the Windows desktop shortcut picks the tested two-core overlay next time
+  (same single-instance rule) instead of the preserved one-core disk. The
+  PowerShell launcher has `-SingleCore` for rollback after a clean stop.
+  Reopening the current guest with the local preference did not spawn a
+  duplicate (still QEMU PID 47692). Portable/fresh installs default one core.
+- New patch 0098 suppresses high-volume AppleKeyStore **logging only** with
+  `sweet_aks_quiet=1`. Normal QEMU boots additionally set `sweetiolog=-` to
+  disable up to 400 IOKit backboardd match-serialization logs; diagnostics
+  retains the original output. Patch 0098 applied cleanly to the original
+  SWEET AKS source reconstructed exactly from patch 0038. No kernel has
+  been replaced. Next: macOS CI compilation and optional offline test.
+
 ## Windows viewer improvements and two-core experiment (2026-10-31 09:48 UTC)
 
 - The live `windows-qemu-virtio` single-core guest was preserved and gracefully

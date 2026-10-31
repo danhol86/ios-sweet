@@ -2,6 +2,13 @@
 
 ## Two-core Windows QEMU follow-up (31 October 2026)
 
+A second reboot with `--diagnostics` disabled also reached the real iOS
+lock screen, unlocked into SpringBoard and displayed example.com's HTML
+content over plain HTTP again. Local screenshot:
+`windows-runtime/network-probe/cpu2-quiet-google-recheck.png`.
+The one-core production overlay was preserved. This supports web-browsing
+repeatability across boots but does not prove uninterrupted reliability.
+
 The isolated two-core native Windows QEMU guest (run
 `windows-runtime/state/windows-qemu-20261031-094744`) booted real iOS 16
 to SpringBoard with both virtual CPUs online. Safari navigated to Google

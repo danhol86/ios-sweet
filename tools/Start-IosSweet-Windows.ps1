@@ -15,6 +15,7 @@ param(
   [switch]$Stop,
   [switch]$SrgbDisplay,
   [switch]$Diagnostics,
+  [switch]$SingleCore,
   [switch]$NoBrowser
 )
 $ErrorActionPreference='Stop'
@@ -43,6 +44,9 @@ if($other.Count){
       $record=Get-Content -LiteralPath $recordPath -Raw | ConvertFrom-Json
       if(([int]$record.qemu_pid -ne [int]$other[0].ProcessId) -or (-not $record.srgb_display)){
         throw 'The running guest does not match the requested sRGB mode. Stop it cleanly before changing display modes.'
+      }
+      if($SingleCore -and $record.cpus -and ([int]$record.cpus -ne 1)){
+        throw 'The running guest uses two CPUs. Stop it cleanly before selecting -SingleCore.'
       }
     }
     try {
@@ -73,6 +77,23 @@ $launchArgs='"'+$script+'"'
 if($NoBrowser){$launchArgs+=' --no-browser'}
 if($SrgbDisplay){$launchArgs+=' --srgb-display'}
 if($Diagnostics){$launchArgs+=' --diagnostics'}
+# Optional machine-local preference, not part of the portable GitHub source.
+# Never accept arbitrary paths, commands, or a core count above two. The
+# Python backend independently validates the clone's raw backing disk.
+$preferred=Join-Path $repo 'windows-runtime\state\native-cpus.txt'
+if(-not $SingleCore -and (Test-Path -LiteralPath $preferred)){
+  $value=(Get-Content -LiteralPath $preferred -Raw).Trim()
+  if($value -ne '2'){
+    throw 'Unexpected native-cpus.txt value. Only the explicitly tested two-CPU mode is supported.'
+  }
+  $testOverlay=Join-Path $repo 'windows-runtime\state\ios-cpu2-experiment.qcow2'
+  $backup=Join-Path $repo 'windows-runtime\backups\cpu2-after-browser-20261031.qcow2'
+  if(-not(Test-Path -LiteralPath $testOverlay) -or -not(Test-Path -LiteralPath $backup)){
+    throw 'The tested two-core overlay or its backup is missing. Remove native-cpus.txt or use -SingleCore.'
+  }
+  $launchArgs+=' --cpus 2 --overlay "'+$testOverlay+'"'
+  Write-Host 'Selecting verified local two-core test overlay; original single-core disk remains untouched.'
+}
 $logDir=Join-Path $repo 'windows-runtime\logs'
 if(-not(Test-Path -LiteralPath $logDir)){New-Item -ItemType Directory -Path $logDir -Force|Out-Null}
 $stamp=Get-Date -Format 'yyyyMMdd_HHmmss_fff'
