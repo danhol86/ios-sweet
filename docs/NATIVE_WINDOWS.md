@@ -1,5 +1,29 @@
 # Native Windows QEMU backend (experimental)
 
+## Viewer efficiency and hot reload (31 October 2026)
+
+The QEMU framebuffer is 1080x2400 BGRA (about **9.9 MiB of raw pixel data**).
+Before this change, every visible viewer tab requested a full QMP `pmemsave`
+approximately every 0.8 seconds even when nothing changed. That generates
+unnecessary host I/O, particularly on the software-emulated Windows guest.
+The viewer now requests frames **every 350 ms after activity or a changed
+frame**, then relaxes to 1 second, 2.5 seconds and finally 6 seconds after
+7, 20 and 60 seconds of inactivity, respectively. It stops polling completely
+when the page is hidden and resumes promptly on visibility/focus or input.
+Actual encoding remains cached with HTTP 304 for identical frames; no
+screenshots are taken by the viewer when there is no connected browser tab.
+
+The full web viewer lives in `tools/qemu-viewer.html`, separate from the
+controller `tools/qemu-live-screen.py`. The controller **reads the HTML on
+each GET /**, so editing its UI only requires reloading the browser tab—no
+iOS/QEMU restart. Backend Python changes still require restarting the
+controller normally. `node tests/check_viewer_poll.js` validates the
+adaptive refresh policy against a controlled clock, and the Python unit
+suite checks that edited HTML is reloaded by an already-running server.
+Adaptive view is a host-I/O optimization, **not** a claim that iOS boots,
+renders WebKit, or executes instructions faster. All private disk files
+and guest kernel contents remain unchanged.
+
 ## Verified quiet-kernel selection and smoke checks (31 October 2026)
 
 The optional `0098` AKS debug-logging patch is now **live-tested** with

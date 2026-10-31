@@ -47,7 +47,8 @@ def post(url, body, origin=None):
 class PNGTests(unittest.TestCase):
     def test_client_avoids_long_press_threshold(self):
         self.assertIn('MIN_TAP_MS=240', viewer.HTML)
-        self.assertIn('setTimeout(poll,interval)', viewer.HTML)
+        self.assertIn('schedulePoll(nextPollInterval())', viewer.HTML)
+        self.assertIn('if(document.hidden||polling)return;', viewer.HTML)
         self.assertIn('fetch("/gesture"', viewer.HTML)
 
     def test_live_png_matches_bgra_byte_order(self):
@@ -156,6 +157,32 @@ class HandlerTests(unittest.TestCase):
         status, headers, _ = get(self.url+'/frame.png', old_etag)
         self.assertEqual(status, 200)
         self.assertNotEqual(old_etag, headers['ETag'])
+
+    def test_html_hot_reload_without_emulator_restart(self):
+        # The Python controller stays running while a new browser request
+        # reads the edited HTML. No QEMU, reboot or private disk is needed.
+        temporary_html = Path(self.temp.name) / 'viewer.html'
+        old_path = viewer.ViewerHandler.html_path
+        try:
+            viewer.ViewerHandler.html_path = temporary_html
+            temporary_html.write_text('<html>revision-one INPUT_ENABLED INPUT_STATUS</html>',
+                                      encoding='utf-8')
+            status, headers, body = get(self.url + '/')
+            self.assertEqual(status, 200)
+            self.assertIn(b'revision-one true Pointer events', body)
+            self.assertEqual(headers['Cache-Control'], 'no-store')
+            temporary_html.write_text('<html>revision-two INPUT_ENABLED</html>',
+                                      encoding='utf-8')
+            status, _, body = get(self.url + '/')
+            self.assertEqual(status, 200)
+            self.assertIn(b'revision-two true', body)
+            self.assertNotIn(b'revision-one', body)
+            self.assertEqual(self.snapshots, 0)
+            temporary_html.unlink()
+            status, _, _ = get(self.url + '/')
+            self.assertEqual(status, 503)
+        finally:
+            viewer.ViewerHandler.html_path = old_path
 
     def test_input_origin_validation_and_single_home_batch(self):
         bad = post(self.url+'/touch', {'x': .5, 'y': .5, 'down': True},

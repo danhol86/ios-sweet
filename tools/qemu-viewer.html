@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ios-sweet QEMU display</title>
+<style>
+html,body{margin:0;background:#11151c;color:#f7f8fc;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+main{margin:auto;max-width:680px;padding:18px 20px;text-align:center}
+h1{font-size:20px;margin:4px 0 8px}
+p{font-size:13px;color:#a5b3c7;line-height:1.5}
+#state{font:13px ui-monospace,monospace;margin:10px}
+#runtime{font:13px ui-monospace,monospace;color:#d6e1ef;margin:8px}
+#frame{display:block;width:auto;max-width:100%;height:auto;max-height:80vh;margin:12px auto;background:black;border:1px solid #374151;border-radius:22px;touch-action:none;user-select:none;-webkit-user-drag:none}
+button{font:600 14px system-ui,sans-serif;padding:10px 18px;margin:5px;background:#323b4b;color:#fff;border:1px solid #64748b;border-radius:10px;cursor:pointer}
+button:disabled{opacity:.45;cursor:default}
+small{display:block;margin-top:12px;color:#8995a8}
+</style></head><body><main>
+<h1>ios-sweet QEMU display</h1>
+<p>Live physical framebuffer snapshots from the ARM64 VM. INPUT_STATUS</p>
+<p>Adaptive viewing: refreshes quickly after activity, uses fewer snapshots when idle, and stops polling hidden tabs.</p>
+<div id="runtime">QEMU runtime</div>
+<div id="state">Connecting to QEMU...</div>
+<img id="frame" alt="QEMU iPhone framebuffer">
+<button type="button" id="swipehome">Swipe up / Home</button>
+<p>Click an app normally or drag on the iPhone screen. Swipe from the bottom bar to return Home, or use the button.</p>
+<small>Local development viewer. Close this page to stop polling; the VM is managed separately.</small>
+</main><script>
+var img=document.getElementById("frame"), state=document.getElementById("state"), runtime=document.getElementById("runtime");
+var busy=false, frameETag="", lastInteraction=Date.now(), lastChange=Date.now();
+var pollTimer=null, polling=false;
+var inputEnabled=INPUT_ENABLED, pointerActive=false, lastPointer=0, activeTap=null;
+// QEMU sends tablet events asynchronously. A desktop mouse click often lasts
+// less than one emulated poll; SpringBoard never sees a complete iOS tap.
+// Tested on the two-core guest: 240ms opens both Safari and a Google favorite.
+// Holding 375ms on the favorite caused an unwanted preview/long-press menu.
+// QMP acknowledgement precedes this timer, so the guest sees enough polls.
+var MIN_TAP_MS=240, touchQueue=Promise.resolve();
+var homeButton=document.getElementById("swipehome");
+homeButton.disabled=!inputEnabled;
+fetch('/status.json',{cache:'no-store'}).then(function(r){return r.json()}).then(function(s){
+ runtime.textContent=s.mode+' • '+s.cores+' CPU'+(s.cores===1?'':'s')+(s.diagnostics?' • diagnostic trace':'');
+}).catch(function(){runtime.textContent='QEMU runtime';});
+async function refresh(){
+ if(busy) return;
+ busy=true;
+ try {
+   var headers=frameETag?{"If-None-Match":frameETag}:{};
+   var response=await fetch("/frame.png", {cache:"no-store",headers:headers});
+   if(response.status===304){state.textContent="iOS Sweet connected (frame unchanged)";return;}
+   if(!response.ok) throw new Error("No running VM / QMP ("+response.status+")");
+   frameETag=response.headers.get("ETag")||"";
+   lastChange=Date.now();
+   var blob=await response.blob(), next=URL.createObjectURL(blob), previous=img.src;
+   img.onload=function(){if(previous.startsWith("blob:")) URL.revokeObjectURL(previous);};
+   img.src=next;
+   state.textContent="Live snapshot received "+new Date().toLocaleTimeString();
+ } catch(e) {state.textContent=String(e.message);}
+ finally {busy=false;}
+}
+// pmemsave writes a ~10 MiB raw guest framebuffer for EACH sample. Do not
+// keep sampling at near-video frequency when no pixels have changed, and
+// perform NO snapshots at all while the browser tab is hidden.
+function nextPollInterval(){
+ var idle=Date.now()-Math.max(lastInteraction,lastChange);
+ return idle<6000?350:(idle<20000?1000:(idle<60000?2500:6000));
+}
+function schedulePoll(ms){
+ if(pollTimer!==null)clearTimeout(pollTimer);
+ pollTimer=null;
+ if(!document.hidden)pollTimer=setTimeout(poll,ms);
+}
+async function poll(){
+ pollTimer=null;
+ if(document.hidden||polling)return;
+ polling=true;
+ try{await refresh();}finally{
+   polling=false;
+   schedulePoll(nextPollInterval());
+ }
+}
+function wakeViewer(){
+ lastInteraction=Date.now();
+ if(!polling)schedulePoll(75);
+}
+document.addEventListener("visibilitychange",function(){
+ if(document.hidden){if(pollTimer!==null)clearTimeout(pollTimer);pollTimer=null;}
+ else wakeViewer();
+});
+window.addEventListener("focus",function(){if(!document.hidden)wakeViewer();});
+poll();
+function coords(ev) {
+ var b=img.getBoundingClientRect();
+ if(b.width<=0 || b.height<=0)return null;
+ var x=Math.min(1,Math.max(0,(ev.clientX-b.left)/b.width));
+ var y=Math.min(1,Math.max(0,(ev.clientY-b.top)/b.height));
+ return {x:x,y:y};
+}
+function delay(ms){return new Promise(function(resolve){setTimeout(resolve,ms)});}
+async function sendRawTouch(x,y,down) {
+ lastInteraction=Date.now();
+ // Keep regular polling during an active drag; each pointer-move must not
+ // endlessly postpone the next frame. Refresh promptly after releasing.
+ if(!polling && (!down || pollTimer===null))schedulePoll(100);
+ var r=await fetch("/touch",{method:"POST",headers:{"Content-Type":"application/json"},
+   body:JSON.stringify({x:x,y:y,down:down})});
+ if(!r.ok)throw new Error("QEMU rejected touchscreen input ("+r.status+")");
+}
+function queueTouch(x,y,down,tap,minimumHold) {
+ var next=touchQueue.then(async function(){
+   if(!down && minimumHold && tap && tap.ackAt) {
+     await delay(Math.max(0,minimumHold-(Date.now()-tap.ackAt)));
+   }
+   await sendRawTouch(x,y,down);
+   if(down && tap && !tap.ackAt)tap.ackAt=Date.now();
+ });
+ // Keep a resolved tail even if an earlier request failed so the next
+ // tap can recover. The state line reports network/QMP errors.
+ touchQueue=next.catch(function(error){state.textContent="Touch input failed: "+error.message;});
+ return touchQueue;
+}
+img.addEventListener("pointerdown",function(e){
+ if(!inputEnabled || pointerActive)return;
+ var p=coords(e);if(!p)return;
+ e.preventDefault();pointerActive=true;lastPointer=0;
+ lastInteraction=Date.now();
+ activeTap={ackAt:0,startX:e.clientX,startY:e.clientY,moved:false};
+ img.setPointerCapture(e.pointerId);
+ queueTouch(p.x,p.y,true,activeTap,0);
+});
+img.addEventListener("pointermove",function(e){
+ if(!pointerActive || !inputEnabled)return;
+ var tap=activeTap;
+ if(tap && (Math.abs(e.clientX-tap.startX)>8 || Math.abs(e.clientY-tap.startY)>8))tap.moved=true;
+ if(Date.now()-lastPointer<45)return;
+ var p=coords(e);if(!p)return;
+ lastPointer=Date.now();queueTouch(p.x,p.y,true,tap,0);
+});
+function pointerUp(e){
+ if(!pointerActive)return;
+ pointerActive=false;
+ var p=coords(e),tap=activeTap;activeTap=null;
+ if(!p)return;
+ // A swipe must remain a swipe; only brief stationary taps are lengthened.
+ queueTouch(p.x,p.y,false,tap,tap && !tap.moved ? MIN_TAP_MS : 0);
+}
+img.addEventListener("pointerup",pointerUp);
+img.addEventListener("pointercancel",pointerUp);
+async function sendAt(x,y,down){
+ return queueTouch(x,y,down,null,0);
+}
+homeButton.addEventListener("click",async function(){
+ if(!inputEnabled)return;
+ homeButton.disabled=true;
+ lastInteraction=Date.now();
+ state.textContent="Sending iOS home gesture...";
+ try{
+   var gesture=touchQueue.then(async function(){
+     var response=await fetch("/gesture",{method:"POST",headers:{"Content-Type":"application/json"},
+       body:JSON.stringify({action:"home"})});
+     if(!response.ok)throw new Error("Home gesture failed ("+response.status+")");
+   });
+   touchQueue=gesture.catch(function(error){state.textContent=error.message;});
+   await gesture;
+ }catch(e){state.textContent="Home gesture failed: "+e.message}
+ finally{homeButton.disabled=false}
+});
+</script></body></html>

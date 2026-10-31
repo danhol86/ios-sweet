@@ -1,5 +1,29 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## Viewer host-I/O optimization, 31 October 2026, ~13:03 UTC
+
+- Measured runtime state on Windows: one QEMU PID 29212, new verified
+  two-core quiet-AKS kernel, and viewer `/status.json` still responsive.
+  Host free RAM fluctuated below 1 GiB while unrelated WSL was resident;
+  **do not kill WSL or other user Docker containers to recover RAM**.
+- Found the live browser viewer still performed a QMP full framebuffer
+  snapshot about every 800ms even on an unchanged page. Each sample writes
+  ~9.9 MiB before compressing, causing unnecessary repeated host I/O.
+  New JavaScript adaptive scheduling uses 350ms immediately after activity,
+  1s after 6s idle, 2.5s after 20s, 6s after 60s, and NO polling for hidden
+  tabs. The browser immediately resumes when returned to or interacted with;
+  pointer moves no longer continually postpone scheduled frame updates.
+- Extracted viewer HTML from the Python controller into
+  `tools/qemu-viewer.html` and changed `GET /` to re-read that file on each
+  request, allowing future UI fixes by browser reload without rebooting iOS.
+  Added 1 Python HTTP test for live HTML updates (10 tests total) and
+  `tests/check_viewer_poll.js` for simulated-time adaptive polling.
+  Both Node and Python tests passed; JavaScript and Python syntax validated.
+- The original iOS disk and kernel, current quiet-kernel save, QEMU and all
+  unrelated Docker/WSL resources remain preserved. After committing changes,
+  do a controlled QEMU restart to deploy this new controller/viewer, and
+  retest lock screen, Home and HTTPS browsing.
+
 ## 31 October 2026 12:04 UTC — optional quiet AKS kernel live verified
 
 - First stopped PID 44780 through verified QMP shutdown; copied the intact
