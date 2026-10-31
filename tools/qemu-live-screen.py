@@ -18,6 +18,7 @@ import sys
 import threading
 import time
 from urllib.parse import urlsplit
+import uuid
 
 qemu_script = Path(__file__).resolve().with_name("qemu-sweet.py")
 spec = importlib.util.spec_from_file_location("qemu_sweet", qemu_script)
@@ -33,6 +34,7 @@ main{margin:auto;max-width:680px;padding:18px 20px;text-align:center}
 h1{font-size:20px;margin:4px 0 8px}
 p{font-size:13px;color:#a5b3c7;line-height:1.5}
 #state{font:13px ui-monospace,monospace;margin:10px}
+#runtime{font:13px ui-monospace,monospace;color:#d6e1ef;margin:8px}
 #frame{display:block;width:auto;max-width:100%;height:auto;max-height:80vh;margin:12px auto;background:black;border:1px solid #374151;border-radius:22px;touch-action:none;user-select:none;-webkit-user-drag:none}
 button{font:600 14px system-ui,sans-serif;padding:10px 18px;margin:5px;background:#323b4b;color:#fff;border:1px solid #64748b;border-radius:10px;cursor:pointer}
 button:disabled{opacity:.45;cursor:default}
@@ -40,23 +42,27 @@ small{display:block;margin-top:12px;color:#8995a8}
 </style></head><body><main>
 <h1>ios-sweet QEMU display</h1>
 <p>Live physical framebuffer snapshots from the ARM64 VM. INPUT_STATUS</p>
+<div id="runtime">QEMU runtime</div>
 <div id="state">Connecting to QEMU...</div>
 <img id="frame" alt="QEMU iPhone framebuffer">
 <button type="button" id="swipehome">Swipe up / Home</button>
 <p>Click an app normally or drag on the iPhone screen. Swipe from the bottom bar to return Home, or use the button.</p>
 <small>Local development viewer. Close this page to stop polling; the VM is managed separately.</small>
 </main><script>
-var img=document.getElementById("frame"), state=document.getElementById("state");
+var img=document.getElementById("frame"), state=document.getElementById("state"), runtime=document.getElementById("runtime");
 var busy=false, frameETag="", lastInteraction=0;
 var inputEnabled=INPUT_ENABLED, pointerActive=false, lastPointer=0, activeTap=null;
 // QEMU sends tablet events asynchronously. A desktop mouse click often lasts
 // less than one emulated poll; SpringBoard never sees a complete iOS tap.
-// 350ms taps successfully opened Safari on the two-core guest; 900ms caused
-// iOS's intentional long-press context menu. Keep a little margin over 350ms
-// but remain below the OS long-press gesture threshold.
-var MIN_TAP_MS=375, touchQueue=Promise.resolve();
+// Tested on the two-core guest: 240ms opens both Safari and a Google favorite.
+// Holding 375ms on the favorite caused an unwanted preview/long-press menu.
+// QMP acknowledgement precedes this timer, so the guest sees enough polls.
+var MIN_TAP_MS=240, touchQueue=Promise.resolve();
 var homeButton=document.getElementById("swipehome");
 homeButton.disabled=!inputEnabled;
+fetch('/status.json',{cache:'no-store'}).then(function(r){return r.json()}).then(function(s){
+ runtime.textContent=s.mode+' • '+s.cores+' CPU'+(s.cores===1?'':'s')+(s.diagnostics?' • diagnostic trace':'');
+}).catch(function(){runtime.textContent='QEMU runtime';});
 async function refresh(){
  if(busy) return;
  busy=true;
@@ -216,12 +222,14 @@ class ViewerHandler(BaseHTTPRequestHandler):
     outdir = None
     input_enabled = False
     qmp_tcp = None
+    runtime_info = {'mode': 'QEMU', 'cores': 1, 'diagnostics': False}
     frame_lock = threading.Lock()
     input_lock = threading.Lock()
     frame_png = None
     frame_digest = None
     frame_sequence = 0
     frame_sampled_at = 0.0
+    frame_session = None
 
     @classmethod
     def reset_cache(cls):
@@ -230,6 +238,9 @@ class ViewerHandler(BaseHTTPRequestHandler):
             cls.frame_digest = None
             cls.frame_sequence = 0
             cls.frame_sampled_at = 0.0
+            # Prevent a stale ETag from a previous VM/boot from suppressing
+            # the first screenshot when a user's browser tab survives restart.
+            cls.frame_session = uuid.uuid4().hex[:12]
 
     def do_GET(self):
         path = urlsplit(self.path).path
@@ -239,6 +250,9 @@ class ViewerHandler(BaseHTTPRequestHandler):
             blob = HTML.replace("INPUT_STATUS",status).replace(
                 "INPUT_ENABLED","true" if self.input_enabled else "false").encode()
             mime = "text/html; charset=utf-8"
+        elif path == "/status.json":
+            blob = json.dumps(self.runtime_info).encode('utf-8')
+            mime = "application/json; charset=utf-8"
         elif path == "/frame.png":
             mon = self.qmp_tcp or self.outdir / "mon.sock"
             rawfile = self.outdir / "viewer-frame.raw"
@@ -262,7 +276,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
                         finally:
                             rawfile.unlink(missing_ok=True)
                     blob=self.frame_png
-                    etag='"iossweet-'+str(self.frame_sequence)+'"'
+                    etag='"iossweet-'+str(self.frame_session)+'-'+str(self.frame_sequence)+'"'
             except (OSError, RuntimeError, ValueError) as ex:
                 self.send_error(503, "QEMU framebuffer unavailable")
                 print(f"snapshot failed: {ex}", file=sys.stderr)
@@ -345,6 +359,7 @@ def main():
         ap.error("QEMU output directory does not exist")
     ViewerHandler.outdir=a.outdir.resolve()
     ViewerHandler.input_enabled=a.enable_input
+    ViewerHandler.runtime_info={'mode':'QEMU viewer','cores':1,'diagnostics':False}
     ViewerHandler.reset_cache()
     if a.qmp_tcp and not (a.qmp_tcp.startswith('tcp://127.0.0.1:') or
                           a.qmp_tcp.startswith('tcp://localhost:')):

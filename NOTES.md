@@ -2,6 +2,21 @@
 
 ## Two-core continuation after quiet reboot (31 October 2026, 10:00 UTC)
 
+- Follow-up ~10:08 UTC: **quiet two-core Safari Google HTTPS now verified**
+  as well as example.com HTTP (ignored screenshot
+  `windows-runtime/network-probe/quiet2-favorite240.png`). Adjusted the
+  frontend's minimum tap from 375ms to **240ms**: 375ms triggered an iOS
+  favorite-preview context menu while a 240ms touch successfully navigated
+  Google and opened Safari from the home screen. The batched home gesture
+  remains separate from ordinary taps.
+- Viewer now uses boot-unique ETags and a sanitized `/status.json`, preventing
+  stale screenshots across VM restarts and showing the current 1/2-core mode
+  in the UI. Native `--check` now returns failure for missing executables,
+  kernel or valid 16 GiB disk rather than printing false and exiting success.
+  Eight offline regression tests pass, including a VM-reset ETag test and
+  the negative prerequisite test. The live two-core session is still the
+  **single** running QEMU, with untouched single-core backup.
+
 - Gracefully stopped the first two-core diagnostics guest. Copied its tested
   overlay to `windows-runtime/backups/cpu2-after-browser-20261031.qcow2`,
   SHA-256 `4635071c4fed373427e5c60ad787b5239c29c1d64035114edc73508a29231f15`.

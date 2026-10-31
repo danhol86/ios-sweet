@@ -4,6 +4,8 @@ import importlib.util
 import json
 from pathlib import Path
 import struct
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -43,7 +45,7 @@ def post(url, body, origin=None):
 
 class PNGTests(unittest.TestCase):
     def test_client_avoids_long_press_threshold(self):
-        self.assertIn('MIN_TAP_MS=375', viewer.HTML)
+        self.assertIn('MIN_TAP_MS=240', viewer.HTML)
         self.assertIn('setTimeout(poll,interval)', viewer.HTML)
         self.assertIn('fetch("/gesture"', viewer.HTML)
 
@@ -138,6 +140,22 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual(len({headers['ETag'] for _, headers, _ in frames}), 1)
         self.assertEqual(self.snapshots, 1)
 
+    def test_etag_changes_across_boot_and_runtime_status_is_private(self):
+        viewer.ViewerHandler.runtime_info = {
+            'mode': 'Native Windows QEMU', 'cores': 2, 'diagnostics': False,
+        }
+        status, headers, blob = get(self.url+'/status.json')
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(blob), viewer.ViewerHandler.runtime_info)
+        self.assertNotIn('D:', blob.decode())
+        first, headers, _ = get(self.url+'/frame.png')
+        self.assertEqual(first, 200)
+        old_etag = headers['ETag']
+        viewer.ViewerHandler.reset_cache()  # emulate a new QEMU boot
+        status, headers, _ = get(self.url+'/frame.png', old_etag)
+        self.assertEqual(status, 200)
+        self.assertNotEqual(old_etag, headers['ETag'])
+
     def test_input_origin_validation_and_single_home_batch(self):
         bad = post(self.url+'/touch', {'x': .5, 'y': .5, 'down': True},
                    origin='https://untrusted.example')
@@ -159,6 +177,20 @@ class HandlerTests(unittest.TestCase):
 
 
 class NativeConfigTests(unittest.TestCase):
+    def test_check_fails_cleanly_for_missing_guest_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = subprocess.run(
+                [sys.executable, str(TOOL / 'iossweet-native-windows.py'),
+                 '--check', '--kernel', str(Path(tmp) / 'missing-kernel'),
+                 '--disk', str(Path(tmp) / 'missing-disk')],
+                capture_output=True, text=True, timeout=12)
+        if sys.platform != 'win32':
+            self.skipTest('Native Windows configuration check requires Windows')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('KERNEL_AVAILABLE=False', result.stdout)
+        self.assertIn('IOS_DISK_AVAILABLE=False', result.stdout)
+        self.assertIn('Missing native Windows prerequisites', result.stderr)
+
     def test_quiet_boot_retains_network_and_disables_trace(self):
         spec = importlib.util.spec_from_file_location(
             'iossweet_windows_test', TOOL / 'iossweet-native-windows.py')

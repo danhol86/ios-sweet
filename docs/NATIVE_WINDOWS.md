@@ -45,9 +45,11 @@ encoding benchmark, **not a claim that iOS itself runs twice as fast**.
 
 Home gestures now use one timed, 30-event QMP connection instead of 30
 individual browser HTTP/QMP calls. A live run invoked that new QMP path and
-returned Safari to SpringBoard in 1.59 seconds. A 350 ms tap opened Safari
-on the two-core guest whereas a 900 ms touch triggered the native long-press
-menu, so the UI now holds short taps for **375 ms** after QMP acknowledgement.
+returned Safari to SpringBoard in 1.59 seconds. Follow-up tests confirmed
+that **240 ms** taps open Safari and navigate from the Google favorite;
+**375 ms** on that favorite invoked an unwanted preview/long-press menu and
+900 ms triggered the native app menu. The viewer therefore holds short
+taps for **240 ms after QMP acknowledgement**, with swipes kept separate.
 Cross-origin POST input is rejected.
 
 Normal launches now omit expensive opt-in diagnostic sampling, verbose
@@ -70,11 +72,22 @@ marked that particular visit "Not Secure"). Two-core viability is verified;
 performance gain and long-running stability are still being assessed, so
 one core remains the portable default until further validation.
 
-Six self-contained offline tests in `tests/test_qemu_viewer.py` cover PNG
-channels, frame cache/ETag, concurrent viewers, input security and native
-boot-arg boundaries. `python -m unittest discover -s tests -p test_qemu_viewer.py`
+Eight self-contained offline tests in `tests/test_qemu_viewer.py` cover PNG
+channels, frame cache/ETag, concurrent viewers, input security, native
+boot-arg boundaries and missing prerequisites.
+`python -m unittest discover -s tests -p test_qemu_viewer.py`
 passed locally on Windows. Private Apple root disks, screenshots, traces and
 QEMU runtime files are not committed to the repository.
+
+Each viewer boot now uses a unique frame-cache session identifier, so a
+browser tab left open during QEMU restarts cannot mistakenly treat the
+new guest's first frame as an unchanged old image. The local-only
+`/status.json` response reports only runtime mode, core count and whether
+diagnostic capture is enabled; no paths, keys or device identifiers.
+`--check` now returns a nonzero exit status if the Windows QEMU executables,
+kernel or 16 GiB iOS disk are missing. It deliberately does **not** reject
+low free RAM while a guest is already running, because opening its existing
+viewer must remain possible.
 
 ## What changes compared with Docker?
 

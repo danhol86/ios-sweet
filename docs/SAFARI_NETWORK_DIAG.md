@@ -4,7 +4,9 @@
 
 A second reboot with `--diagnostics` disabled also reached the real iOS
 lock screen, unlocked into SpringBoard and displayed example.com's HTML
-content over plain HTTP again. Local screenshot:
+content over plain HTTP again. It also navigated to Google over HTTPS and
+rendered its consent dialog and secure padlock in the new session.
+Local screenshots:
 `windows-runtime/network-probe/cpu2-quiet-google-recheck.png`.
 The one-core production overlay was preserved. This supports web-browsing
 repeatability across boots but does not prove uninterrupted reliability.

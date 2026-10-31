@@ -348,6 +348,11 @@ def run_locked(args, state, qemu_bin, qemu_img):
         viewer.ViewerHandler.outdir = run
         viewer.ViewerHandler.input_enabled = True
         viewer.ViewerHandler.qmp_tcp = endpoint
+        viewer.ViewerHandler.runtime_info = {
+            'mode': 'Native Windows QEMU',
+            'cores': args.cpus,
+            'diagnostics': args.diagnostics,
+        }
         viewer.ViewerHandler.reset_cache()
         server = viewer.ThreadingHTTPServer(('127.0.0.1', args.port), viewer.ViewerHandler)
         threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -405,13 +410,24 @@ def main():
         stop_native(args.state)
         return
     if args.check:
+        installed = (QEMU_DIR / 'qemu-system-aarch64.exe').is_file() and \
+                    (QEMU_DIR / 'qemu-img.exe').is_file()
+        kernel_ok = args.kernel.is_file()
+        disk_ok = args.disk.is_file() and args.disk.stat().st_size == 16 * (1 << 30)
         print('WINDOWS_NATIVE_QEMU='+str(QEMU_DIR / 'qemu-system-aarch64.exe'))
-        print('QEMU_INSTALLED='+(str((QEMU_DIR / 'qemu-system-aarch64.exe').is_file())))
-        print('KERNEL_AVAILABLE='+str(args.kernel.is_file()))
-        print('IOS_DISK_AVAILABLE='+str(args.disk.is_file()))
+        print('QEMU_INSTALLED='+str(installed))
+        print('KERNEL_AVAILABLE='+str(kernel_ok))
+        print('IOS_DISK_AVAILABLE='+str(disk_ok))
         print('QEMU_DEVICE_TREE=GENERATED_NATIVELY')
         print(f'WINDOWS_FREE_RAM_GIB={free_ram_gib():.2f}')
         print('NATIVE_ARM64_ACCEL=TCG_SOFTWARE_ONLY')
+        # A double-click must fail clearly when setup files are absent; a
+        # successful --check used to exit 0 even if everything was missing.
+        # Do not enforce available RAM here: an ALREADY RUNNING guest uses RAM
+        # and must still be reopenable by the desktop launcher.
+        if not installed or not kernel_ok or not disk_ok:
+            raise SystemExit('Missing native Windows prerequisites. See '
+                             'docs/NATIVE_WINDOWS.md for setup and verified files.')
         return
     if args.prepare_only:
         if os.name != 'nt':
