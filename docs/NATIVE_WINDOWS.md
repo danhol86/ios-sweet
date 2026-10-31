@@ -166,9 +166,10 @@ marked that particular visit "Not Secure"). Two-core viability is verified;
 performance gain and long-running stability are still being assessed, so
 one core remains the portable default until further validation.
 
-Nine self-contained offline tests in `tests/test_qemu_viewer.py` cover PNG
+Eleven self-contained offline tests in `tests/test_qemu_viewer.py` cover PNG
 channels, frame cache/ETag, concurrent viewers, input security, native
-boot-arg boundaries, missing prerequisites and a QEMU PID safety check.
+boot-arg boundaries, missing prerequisites, QEMU PID safety, live HTML reload
+and atomic cross-process startup locking.
 `python -m unittest discover -s tests -p test_qemu_viewer.py`
 passed locally on Windows. Private Apple root disks, screenshots, traces and
 QEMU runtime files are not committed to the repository.

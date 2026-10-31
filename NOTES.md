@@ -8,8 +8,17 @@
   Test spawned a competing Python process: it failed while the lock was
   held, and succeeded immediately after release. Eleven Python tests plus
   JavaScript adaptive refresh tests now pass. Source updated on GitHub
-  after verification; the running guest requires one controlled restart for
-  the singleton lock to become active in its controller.
+  after verification. **Controlled restart verified:** current native QEMU
+  PID 21920 (`windows-qemu-20261031-130715`), quiet-AKS kernel, two CPUs,
+  sRGB and diagnostics off; no second emulator. Immediately beforehand,
+  backed up its writable overlay at
+  `windows-runtime/backups/cpu2-before-singleton-20261031.qcow2` with SHA-256
+  `14683cbb009b4461375a1dddedd08fc8740f886e55c879da5fac831e1a7abfc8`
+  (verified exact 64-character checksum).
+  Verified `native-qemu-instance.lock` is held by running controller: a live
+  second Python process failed to acquire it, while normal launcher reopen
+  reused the original guest PID. No unrelated WSL or Docker service stopped.
+  Continue with post-reboot SpringBoard and Safari HTTPS checks.
 
 - Measured runtime state on Windows: one QEMU PID 29212, new verified
   two-core quiet-AKS kernel, and viewer `/status.json` still responsive.
