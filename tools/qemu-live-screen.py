@@ -84,6 +84,32 @@ def home_gesture():
     result.append((touch_events(.5, .242, False), .10))
     return result
 
+
+def navigation_gesture(direction):
+    """Smooth bounded swipe for scrolling and horizontal navigation.
+
+    One QMP connection keeps intermediate positions and delays consistent,
+    unlike a fast desktop drag that produces many independent HTTP calls.
+    Direction names describe the movement of the virtual finger, not content.
+    """
+    endpoints = {
+        'up': ((.5, .80), (.5, .30)),
+        'down': ((.5, .30), (.5, .80)),
+        'left': ((.85, .50), (.20, .50)),
+        'right': ((.20, .50), (.85, .50)),
+    }
+    if direction not in endpoints:
+        raise ValueError('Unknown navigation swipe')
+    start, end = endpoints[direction]
+    result = [(touch_events(*start, True), 0)]
+    for i in range(1, 15):
+        f = i / 14
+        x = start[0] + (end[0] - start[0]) * f
+        y = start[1] + (end[1] - start[1]) * f
+        result.append((touch_events(x, y, True), .12 if i == 1 else .038))
+    result.append((touch_events(*end, False), .08))
+    return result
+
 class ViewerHandler(BaseHTTPRequestHandler):
     outdir = None
     input_enabled = False
@@ -244,9 +270,14 @@ class ViewerHandler(BaseHTTPRequestHandler):
             event=json.loads(self.rfile.read(length))
             with self.input_lock:
                 if path == "/gesture":
-                    if event != {"action":"home"}:
+                    if event == {"action":"home"}:
+                        commands = home_gesture()
+                    elif isinstance(event, dict) and set(event) == {'action'} and event['action'] in (
+                            'swipe-up', 'swipe-down', 'swipe-left', 'swipe-right'):
+                        commands = navigation_gesture(event['action'].removeprefix('swipe-'))
+                    else:
                         raise ValueError("Unknown gesture")
-                    qmp_tablet_sequence(self.qmp_tcp or self.outdir/"mon.sock",home_gesture())
+                    qmp_tablet_sequence(self.qmp_tcp or self.outdir/"mon.sock", commands)
                 else:
                     x,y,down=event["x"],event["y"],event["down"]
                     if type(down) is not bool or type(x) not in (float,int) or type(y) not in (float,int):

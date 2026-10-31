@@ -11,6 +11,8 @@ p{font-size:13px;color:#a5b3c7;line-height:1.5}
 #frame{display:block;width:auto;max-width:100%;height:auto;max-height:80vh;margin:12px auto;background:black;border:1px solid #374151;border-radius:22px;touch-action:none;user-select:none;-webkit-user-drag:none}
 button{font:600 14px system-ui,sans-serif;padding:10px 18px;margin:5px;background:#323b4b;color:#fff;border:1px solid #64748b;border-radius:10px;cursor:pointer}
 button:disabled{opacity:.45;cursor:default}
+.nav-controls{display:flex;justify-content:center;flex-wrap:wrap;gap:5px;margin:4px auto 10px}
+.nav-controls button{font-size:13px;padding:9px 12px;margin:0}
 small{display:block;margin-top:12px;color:#8995a8}
 details{margin:12px auto;max-width:480px;text-align:left;background:#1d2634;padding:12px;border-radius:10px}
 summary{cursor:pointer;font-size:13px;color:#cbd5e1}
@@ -23,6 +25,12 @@ summary{cursor:pointer;font-size:13px;color:#cbd5e1}
 <div id="state">Connecting to QEMU...</div>
 <img id="frame" alt="QEMU iPhone framebuffer">
 <button type="button" id="swipehome">Swipe up / Home</button>
+<div class="nav-controls" aria-label="Swipe controls">
+ <button type="button" data-swipe="up">Scroll down</button>
+ <button type="button" data-swipe="down">Scroll up</button>
+ <button type="button" data-swipe="left">Swipe left</button>
+ <button type="button" data-swipe="right">Swipe right</button>
+</div>
 <details id="perfDetails"><summary>Viewer performance diagnostics</summary>
 <p>Measures Windows host screenshot capture and encoding, not the iOS frame rate.</p>
 <button type="button" id="perfRefresh">Refresh measurements</button>
@@ -43,6 +51,8 @@ var activePointerId=null, lastTouchPoint=null;
 var MIN_TAP_MS=240, touchQueue=Promise.resolve();
 var homeButton=document.getElementById("swipehome");
 homeButton.disabled=!inputEnabled;
+var swipeButtons=Array.from(document.querySelectorAll('[data-swipe]'));
+swipeButtons.forEach(function(button){button.disabled=!inputEnabled;});
 async function updatePerformance(){
  var el=document.getElementById('perfStats');
  try{
@@ -181,6 +191,26 @@ document.addEventListener("visibilitychange",function(){if(document.hidden)finis
 async function sendAt(x,y,down){
  return queueTouch(x,y,down,null,0);
 }
+async function sendGesture(action){
+ if(!inputEnabled||pointerActive)return;
+ lastInteraction=Date.now();
+ var gesture=touchQueue.then(async function(){
+   var response=await fetch('/gesture',{method:'POST',headers:{'Content-Type':'application/json'},
+     body:JSON.stringify({action:action})});
+   if(!response.ok)throw new Error('Gesture failed ('+response.status+')');
+ });
+ touchQueue=gesture.catch(function(error){state.textContent=error.message;});
+ await gesture;
+ wakeViewer();
+}
+swipeButtons.forEach(function(button){
+ button.addEventListener('click',async function(){
+   button.disabled=true;
+   try{await sendGesture('swipe-'+button.dataset.swipe);}
+   catch(e){state.textContent='Swipe failed: '+e.message;}
+   finally{button.disabled=!inputEnabled;}
+ });
+});
 homeButton.addEventListener("click",async function(){
  if(!inputEnabled)return;
  homeButton.disabled=true;

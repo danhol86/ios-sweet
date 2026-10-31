@@ -14,7 +14,7 @@ const script = html.split('<script>')[1].split('</script>')[0]
 
 async function test(name, action) {
   const listeners = {img: {}, window: {}, document: {}};
-  const sends = [];
+  const sends = [], gestures = [];
   const img = {
     src: '', disabled: false,
     addEventListener: (event, fn) => {listeners.img[event] = fn;},
@@ -22,16 +22,25 @@ async function test(name, action) {
     getBoundingClientRect: () => ({left: 0, top: 0, width: 200, height: 400}),
   };
   const home = {disabled: false, addEventListener: () => {}};
+  const swipeButtons = ['up', 'down', 'left', 'right'].map(swipe => ({
+    dataset: {swipe}, disabled: false,
+    addEventListener(event, handler) {if(event === 'click')this.click = handler;},
+  }));
   const elements = {frame: img, state: {textContent: ''}, runtime: {textContent: ''},
     swipehome: home, perfDetails: {addEventListener: () => {}},
     perfRefresh: {addEventListener: () => {}}, perfStats: {textContent: ''}};
   const document = {hidden: false, getElementById: id => elements[id],
+    querySelectorAll: selector => selector === '[data-swipe]' ? swipeButtons : [],
     addEventListener: (event, fn) => {listeners.document[event] = fn;}};
   const window = {addEventListener: (event, fn) => {listeners.window[event] = fn;}};
   const fetch = async (url, options) => {
     if(url === '/status.json')return {json: async () => ({mode: 'QEMU', cores: 2})};
     if(url === '/touch'){
       sends.push({event: JSON.parse(options.body), keepalive: options.keepalive});
+      return {ok: true};
+    }
+    if(url === '/gesture'){
+      gestures.push(JSON.parse(options.body));
       return {ok: true};
     }
     throw new Error('Unexpected network request: ' + url);
@@ -44,7 +53,7 @@ async function test(name, action) {
   const pointer = (pointerId, x, y) => ({pointerId, clientX: x, clientY: y,
     preventDefault() {}});
   const flush = async () => {await vm.runInContext('touchQueue', context);};
-  await action({listeners, pointer, flush, sends, document});
+  await action({listeners, pointer, flush, sends, document, swipeButtons, gestures});
   console.log('PASS pointer release:', name);
 }
 
@@ -78,5 +87,17 @@ async function test(name, action) {
     listeners.document.visibilitychange();
     await flush();
     assert.deepEqual(sends.map(x => x.event.down), [true, false]);
+  });
+  await test('navigation buttons use one gesture each', async ({swipeButtons, gestures, sends}) => {
+    for(const button of swipeButtons){
+      assert.equal(button.disabled, false);
+      await button.click();
+      assert.equal(button.disabled, false);
+    }
+    assert.deepEqual(gestures, [
+      {action:'swipe-up'}, {action:'swipe-down'},
+      {action:'swipe-left'}, {action:'swipe-right'},
+    ]);
+    assert.equal(sends.length, 0, 'Do not use separate HTTP touch requests for a swipe');
   });
 })().catch(error => {console.error(error);process.exitCode = 1;});

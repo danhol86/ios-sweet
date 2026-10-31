@@ -2,6 +2,22 @@
 
 ## Viewer efficiency and hot reload (31 October 2026)
 
+### Smooth one-connection navigation gestures
+
+The browser viewer now offers four optional controls: **Scroll down**, **Scroll
+up**, **Swipe left** and **Swipe right**, in addition to the original Home
+gesture and freehand pointer/touch handling. Each directional control sends
+one validated request to `/gesture`. The backend generates sixteen bounded
+tablet events in **one QMP connection**, with intermediate positions and
+delays that survive busy iOS input polls. It avoids browser drag speed and
+network round trips determining swipe success. Inputs are restricted to four
+fixed directions; arbitrary coordinates, durations, or extra payload fields
+are rejected. The existing origin and loopback restrictions still apply.
+The directional names refer to the finger movement; "Scroll down" moves
+the virtual finger upward. JavaScript pointer tests and Python HTTP tests
+validate the command count, safe bounds, one-request UI, and rejection of
+invalid gestures. Actual scrolling on each app is subject to iOS handling.
+
 ### Pointer recovery and host capture metrics
 
 The HTML viewer queues all touchscreen events in order. It now guarantees

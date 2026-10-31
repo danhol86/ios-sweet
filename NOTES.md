@@ -1,5 +1,21 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## 31 October 2026 — smoother navigation gestures
+
+- Host metrics showed ~26 ms QMP framebuffer read and ~24 ms PNG encoding;
+  no capture errors in the last profile. These are **not** the main driver
+  of the much slower overall iOS/WebKit execution on x86 QEMU TCG.
+- Implemented fixed bounded directional swipe gestures: up, down, left,
+  right. One `/gesture` HTTP POST triggers sixteen timed QMP events on a
+  single connection, avoiding a new QMP handshake for every movement.
+  Browser UI exposes four separate navigation buttons with user-friendly
+  scroll labels; existing touch and Home controls remain unchanged.
+- 13 Python tests pass, covering direction counts, coordinate bounds, no
+  arbitrary durations/coordinates and cross-origin validation. Browser
+  simulator confirms one gesture request per button with no individual
+  touch requests; pointer-cancel recovery tests and adaptive-viewer tests
+  also pass. Revalidate the actual running QEMU after deploying backend.
+
 ## 31 October 2026 ~13:29 UTC — pointer recovery + capture metrics
 
 - Follow-up live deployment: cleanly stopped prior two-core QEMU PID 21920;

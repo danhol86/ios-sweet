@@ -227,6 +227,28 @@ class HandlerTests(unittest.TestCase):
         self.assertTrue(self.gestures[1][0][0][-1]['data']['down'])
         self.assertFalse(self.gestures[1][-1][0][-1]['data']['down'])
 
+    def test_navigation_swipes_are_bounded_and_batched(self):
+        for direction in ('up', 'down', 'left', 'right'):
+            self.assertEqual(post(self.url+'/gesture', {'action':'swipe-'+direction}), 204)
+            commands = self.gestures[-1]
+            self.assertEqual(len(commands), 16)
+            self.assertTrue(commands[0][0][-1]['data']['down'])
+            self.assertFalse(commands[-1][0][-1]['data']['down'])
+            self.assertTrue(all(0 <= event['data']['value'] <= 32767
+                                for events, _ in commands for event in events
+                                if event['type'] == 'abs'))
+            self.assertLess(sum(delay for _, delay in commands), 1.0)
+        self.assertEqual(len(self.gestures), 4)
+        for invalid in ({'action': 'swipe-diagonal'},
+                        {'action': 'swipe-up', 'duration_ms': 100000},
+                        {'action': 'swipe-up', 'x': 1.1},
+                        {'action': ['swipe-up']},
+                        {}):
+            self.assertEqual(post(self.url+'/gesture', invalid), 400)
+        self.assertEqual(len(self.gestures), 4)
+        self.assertEqual(post(self.url+'/gesture', {'action':'swipe-up'},
+                              origin='https://hostile.example'), 403)
+
 
 class NativeConfigTests(unittest.TestCase):
     def test_atomic_native_lock_blocks_concurrent_launcher(self):
