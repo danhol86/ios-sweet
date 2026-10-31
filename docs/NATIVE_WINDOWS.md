@@ -2,6 +2,75 @@
 
 ## `driverkitd` termination diagnosis — 31 October 2026
 
+### Verified private HFSX configuration inspection
+
+The private `windows-runtime/guest/ios16-net-test.raw` is an HFSX volume,
+with its catalog B-tree directly readable through ordinary Python file I/O.
+The new **read-only** `tools/inspect-hfsx-jetsam.py` traverses the catalog
+and reads only four approved file paths from the disk: the consolidated
+`/System/Library/xpc/launchd.plist`, the individual
+`/System/Library/LaunchDaemons/com.apple.driverkitd.plist`, and the two
+`com.apple.jetsamproperties.D22.plist` / `D221.plist` policies. It never
+mounts, modifies, or copies the private image, nor distributes its contents.
+
+```powershell
+python tools/inspect-hfsx-jetsam.py windows-runtime/guest/ios16-net-test.raw
+```
+
+**Observed facts:** the standalone and consolidated job agree and have
+`RunAtLoad=true`, `EnablePressuredExit=false` and **no** explicit
+`JetsamProperties`. The two device-specific policy dictionaries are
+**identical**; both have 530 `Daemon.Override` entries, but **none** names
+`com.apple.driverkitd`, and neither has a daemon-specific default for that
+label. The `Daemon.Default.Global` dictionary is empty. Their `DriverKit`
+groups contain limits for *extensions*, not an automatic memory limit for
+the `driverkitd` management daemon.
+
+Therefore there is no obvious explicit per-daemon limit in the examined
+launchd/jetsam plists. It may inherit a memory limit from memorystatus or
+another runtime policy. The log still conclusively says **per-process
+limit jetsam**, but does not reveal the numeric limit, actual memory use,
+or why it was exceeded. Do not arbitrarily raise or disable the limits.
+The next meaningful evidence is a guest-resident-memory trace immediately
+before termination (or an authenticated jetsam event record) on an isolated
+debug boot when enough Windows RAM is available.
+
+An additional read-only catalog inspection found 24 `.ips` files and one
+`.panic` file in the saved HFSX image, but **none of their contents mentions
+`driverkitd`, `JetsamEvent`, or the per-process memory-limit reason**. No
+ready-made incident report establishing the daemon's footprint was found.
+The two D22/D221 policy dictionaries were compared structurally and match.
+
+### Optional `driverkitd` execution sampling on a future safe boot
+
+The already-patched SWEET XNU kernel supports a process sampler. Use the new
+**opt-in** `-SampleDriverKitd` switch only after the host has at least 6 GiB
+of free RAM and the active guest has been stopped cleanly:
+
+```powershell
+powershell -NoProfile -File tools/Start-IosSweet-Windows.ps1 -SrgbDisplay -SampleDriverKitd
+```
+
+This enables `sweetsample=driverkitd sweetsample_delay=1
+sweetsample_interval=2`, with quiet AKS/IOKit logging preserved and full
+network trace disabled unless `-Diagnostics` is separately selected.
+It emits sampled **user PC and thread backtrace** information, *not* process
+resident memory measurements, effective jetsam limits, or a fix for the
+service's termination. The next step is to correlate those snapshots with
+a source-verified guest memory/jetsam measurement. The launcher's existing
+mode-mismatch and single-instance safeguards remain in place.
+
+The exact two-core quiet-kernel diagnostic boot payload was independently
+generated and inspected with `--prepare-only` on Windows; all intended flags
+were present once and the network trace flag absent. That exercise did not
+start QEMU, modify the private overlay, or bypass the RAM guard. **Live
+sampling and swipe acceptance still await sufficient free Windows RAM.**
+
+The inspector reports only approved policy sections and counts, not the
+hundreds of unrelated daemon entries. Five synthetic tests validate HFSX
+record parsing, targeted fork reading, wrong-filesystem rejection and the
+summarised policy output without requiring Apple firmware or a guest boot.
+
 The recurring guest log entry `CRASH driverkitd[66] sig 9 ... reason ns 1
 code 0x7` has a **specific XNU meaning**, not an unknown instruction fault:
 namespace `1` is `OS_REASON_JETSAM`, and code `7` is

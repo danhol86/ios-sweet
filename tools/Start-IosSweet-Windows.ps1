@@ -15,6 +15,7 @@ param(
   [switch]$Stop,
   [switch]$SrgbDisplay,
   [switch]$Diagnostics,
+  [switch]$SampleDriverKitd,
   [switch]$SingleCore,
   [switch]$LegacyKernel,
   [switch]$NoBrowser
@@ -57,6 +58,9 @@ if($other.Count){
     if($Diagnostics -and (-not $record.diagnostics)){
       throw 'The running guest has diagnostics disabled. Stop it cleanly before enabling -Diagnostics.'
     }
+    if($SampleDriverKitd -and (-not $record.sample_driverkitd)){
+      throw 'The running guest did not enable driverkitd sampling. Stop it cleanly before changing diagnostic mode.'
+    }
     try {
       $response=Invoke-WebRequest -Uri 'http://127.0.0.1:8108/' -UseBasicParsing -TimeoutSec 3
       if($response.StatusCode -eq 200){
@@ -85,6 +89,7 @@ $launchArgs='"'+$script+'"'
 if($NoBrowser){$launchArgs+=' --no-browser'}
 if($SrgbDisplay){$launchArgs+=' --srgb-display'}
 if($Diagnostics){$launchArgs+=' --diagnostics'}
+if($SampleDriverKitd){$launchArgs+=' --sample-driverkitd'}
 # The original known-good kernel remains in its normal guest path. This
 # machine-local opt-in may select a separately verified Windows-only kernel;
 # Docker, physical-phone, and fresh GitHub installs keep their own pins.

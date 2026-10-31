@@ -163,7 +163,7 @@ def slash(path):
     return str(path).replace('\\', '/')
 
 
-def guest_boot_args(cpus=1, diagnostics=False):
+def guest_boot_args(cpus=1, diagnostics=False, sample_driverkitd=False):
     """Keep costly sampling/tracing off for ordinary native Windows boots.
 
     Multi-core is opt-in until its boot and app behavior are validated. The
@@ -181,15 +181,23 @@ def guest_boot_args(cpus=1, diagnostics=False):
     if cpus > 1:
         base += ' sweet_qemu_smp=1'
     if diagnostics:
+        names = ('driverkitd,SpringBoard,lsd,MobileGestaltHel,backboardd'
+                 if sample_driverkitd else 'SpringBoard,lsd,MobileGestaltHel,backboardd')
+        interval = 'sweetsample_delay=1 sweetsample_interval=2' if sample_driverkitd else (
+            'sweetsample_delay=12 sweetsample_interval=25')
         base += (' -enable_kprintf_spam '
-                 'sweetsample=SpringBoard,lsd,MobileGestaltHel,backboardd '
-                 'sweetsample_delay=12 sweetsample_interval=25 '
+                 f'sweetsample={names} {interval} '
                  'sweet_qemu_network_trace=1 sweet_qemu_necp_trace=1')
     else:
         # Patch 0049 normally traces up to 400 backboardd IOKit matches.
         # Preserve full trace access for --diagnostics, but skip costly
         # dictionary serialization and printing in normal iOS sessions.
         base += ' sweetiolog=- sweet_aks_quiet=1'
+        if sample_driverkitd:
+            # Opt-in process PC/stack sampling using the *existing* kernel
+            # sampler, without enabling verbose packet/network traces.
+            # This is NOT a resident-memory counter or a fix for jetsam.
+            base += ' sweetsample=driverkitd sweetsample_delay=1 sweetsample_interval=2'
     return base
 
 
@@ -306,7 +314,7 @@ def prepare(args, state, qemu_bin, qemu_img, require_ram=True):
     subprocess.run(adt_cmd,
                    check=True, timeout=60)
     log('NATIVE_QEMU_DISPLAY_GAMUT='+('sRGB_EXPERIMENT' if args.srgb_display else 'P3_ORIGINAL'))
-    cmdline = guest_boot_args(args.cpus, args.diagnostics)
+    cmdline = guest_boot_args(args.cpus, args.diagnostics, args.sample_driverkitd)
     payload = run / 'payload.bin'
     subprocess.run([sys.executable, str(TOOL / 'mkpayload.py'),
                     str(kernel), str(qemu_adt), str(payload), '--cmdline', cmdline],
@@ -427,6 +435,7 @@ def run_locked(args, state, qemu_bin, qemu_img):
             'viewer_port': args.port, 'run': str(run),
             'srgb_display': args.srgb_display,
             'cpus': args.cpus, 'diagnostics': args.diagnostics,
+            'sample_driverkitd': args.sample_driverkitd,
             'kernel_sha256': args.kernel_sha256}, indent=2))
         log(f'NATIVE_WINDOWS_VIEWER_READY=http://127.0.0.1:{args.port}/')
         if not args.no_browser:
@@ -465,6 +474,8 @@ def main():
                         help='one core is verified; two-core QEMU is an isolated experimental mode')
     parser.add_argument('--diagnostics', action='store_true',
                         help='opt in to verbose kernel traces, sampling and network PCAP; avoid for normal use')
+    parser.add_argument('--sample-driverkitd', action='store_true',
+                        help='opt in to early driverkitd user-PC/backtrace sampling; does not measure RSS or bypass jetsam')
     parser.add_argument('--no-browser', action='store_true')
     parser.add_argument('--srgb-display', action='store_true',
                         help='experiment: advertise an 8-bit sRGB screen instead of iPhone X P3 in synthetic QEMU /product ADT')

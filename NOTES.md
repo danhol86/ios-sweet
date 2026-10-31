@@ -2,6 +2,37 @@
 
 ## 31 October 2026 — `driverkitd` jetsam reason identified
 
+- Continued at 16:27 UTC: Windows free RAM fell to ~2 GiB, with **38**
+  Docker containers running. QEMU is stopped and the 6 GiB safety gate must
+  not be bypassed; no unrelated containers or iOS disk were altered.
+- Examined the existing 16 GiB private HFSX root read-only, parsing its
+  catalog B-tree and extracting only selected launchd/jetsam dictionaries
+  in memory. The driverkitd job in both the standalone and consolidated
+  launchd plists has `RunAtLoad=true`, `EnablePressuredExit=false`, and no
+  `JetsamProperties`. D22 and D221 policies are structurally **identical**;
+  each contains 530 `Daemon.Override` entries, but no `driverkitd`-specific
+  override or default. `Daemon.Default.Global` is empty. `DriverKit` policy
+  applies to extensions and must not be mistaken for the daemon's own limit.
+- Added `tools/inspect-hfsx-jetsam.py` for this read-only, narrowly
+  allowlisted policy inspection, with `tests/test_hfsx_jetsam.py` synthetic
+  parsing and policy-summary tests. Neither the numeric effective daemon
+  memory limit nor its resident footprint is known. Next investigate with
+  guest-side jetsam/memorystatus telemetry once safe RAM is available.
+- Scanned the HFSX catalog for saved jetsam/crash reports: found 24 `.ips`
+  files and one `.panic`; none of the report contents mentioned
+  `driverkitd`, `JetsamEvent` or `memory_perprocesslimit`. The image does
+  not contain an obvious usable report with the missing resident footprint.
+- Added an opt-in `--sample-driverkitd` / PowerShell `-SampleDriverKitd`
+  using the kernel's existing PC/backtrace sampler; 1-second delay,
+  2-second interval, *no* full network trace. It is execution tracing,
+  **not resident-memory telemetry** and does not disable jetsam. An offline
+  `--prepare-only` test built the correct two-core quiet-kernel payload;
+  confirmed all expected bootargs and zero running QEMU guests. The live
+  test awaits at least 6 GiB genuinely available Windows physical RAM.
+- Five synthetic HFSX inspection tests and the wider regression suites pass;
+  original Apple raw disk and QCOW2 backups remain untouched. Docker and its
+  currently running containers were not stopped or modified.
+
 - Analyzed archived QEMU in-memory console logs from five distinct
   two-core Windows boots. Every boot reported `driverkitd` PID 66 killed
   by signal 9 with `reason ns 1 code 0x7`; normalizing the image-relative
